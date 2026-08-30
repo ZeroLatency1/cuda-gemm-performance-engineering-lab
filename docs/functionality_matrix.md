@@ -1,33 +1,22 @@
 # Functionality Matrix
 
-The fresh build preserves the functional surface of the original KUCH repository while replacing the benchmark/result layer with append-only experiment tracking.
-
-| Original capability | Fresh project |
-|---|---|
-| CPU GEMM | Included |
-| Alternate CPU loop order | Included |
-| Naive CUDA GEMM | Included |
-| Coalesced CUDA GEMM | Included |
-| Shared-memory 16x16 | Included |
-| Shared-memory 32x32 | Included |
-| Register-tiled CUDA | Included |
-| Vectorized CUDA | Included |
-| Warp/shuffle experiment | Included |
-| Tensor Core / WMMA FP16 input, FP32 accumulate | Included |
-| cuBLAS SGEMM | Included, persistent handle |
-| CUDA-event kernel timing | Included |
-| Warmup / repeated measurements | Included |
-| Median / p95 / minimum | Included |
-| GFLOPS from median latency | Included |
-| Correctness verification | Included |
-| Odd/non-square dimensions | Included |
-| Append-only CSV history | Included |
-| Append-only JSONL history | Included |
-| Unique experiment IDs | Included |
-| Results path independent of launch directory | Included |
-| Per-experiment raw JSON artifacts | Included |
-| Git commit captured per experiment | Included |
-| GPU/CUDA metadata captured per experiment | Included |
-| WSL/profiler limitation recording | Included |
-| Original React/Vite frontend files | Preserved |
-| Original architecture/memory/optimization/profiling documentation | Preserved |
+| Capability | Implementation | Target-side verification required |
+|---|---|---|
+| CPU reference GEMM | `src/cpu_gemm.cpp` | Yes |
+| Naive CUDA | `src/naive_cuda.cu` | Yes |
+| Coalesced CUDA | `src/coalesced_cuda.cu` | Yes |
+| Shared-memory 16/32 | `src/shared_mem_cuda.cu` | Yes |
+| Register tiled 32/64 | `src/register_tiled_cuda.cu` | Yes |
+| Float4 vectorized | `src/vectorized_cuda.cu` | Yes |
+| Warp shuffle experiment | `src/warp_experiments.cu` | Yes |
+| WMMA Tensor Core FP16/FP32 | `src/tensor_core_cuda.cu` | Yes, SM 8.9 |
+| cuBLAS FP32 | `src/cublas_gemm.cu` | Yes |
+| cuBLAS FP16 Tensor Core math | `src/cublas_gemm.cu` | Yes |
+| CUDA-event kernel timing | `src/benchmark.cu` | Yes |
+| Separate H2D/D2H/end-to-end timing | `src/benchmark.cu` | Yes |
+| Append-only CSV/JSONL | `src/benchmark.cu` | Yes |
+| Unique raw experiment artifacts | `src/benchmark.cu` | Yes |
+| Explicit UNSUPPORTED vs ERROR | `src/benchmark.cu` | Yes |
+| Project state automation | `scripts/update_project_state.py` | Yes |
+| Plot generation from stored results | `scripts/generate_plots.py` | Yes |
+| Profiling limitation capture | `scripts/run_profile.sh` | Yes |

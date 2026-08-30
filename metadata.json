@@ -1,11 +1,14 @@
 {
   "name": "CUDA GEMM Performance Engineering Lab",
-  "description": "Reproducible CUDA GEMM benchmarking and optimization portfolio targeting RTX 4060 Laptop / SM 8.9 with CUDA 12.0.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "CUDA GEMM benchmarking",
-    "append-only experiment history",
-    "correctness verification",
-    "GPU performance engineering"
-  ]
+  "description": "Evidence-driven CUDA GEMM implementation, correctness, benchmarking, profiling, and optimization laboratory targeting RTX 4060 Laptop / SM 8.9.",
+  "target": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "compute_capability": "8.9",
+    "cuda_toolkit": "12.0.140",
+    "os": "Ubuntu 24.04 under WSL2",
+    "compiler": "GCC 13.3.0"
+  },
+  "results_policy": "append-only",
+  "performance_policy": "measured-only",
+  "requestFramePermissions": []
 }

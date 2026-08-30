@@ -1,8 +1,15 @@
 # Benchmark Analysis
 
-This document will contain the technical performance report covering:
-CPU → naive CUDA → coalesced CUDA → tiled CUDA → register tiled CUDA → Tensor Core → cuBLAS.
+No target-side numerical analysis is prefilled in this archive.
 
-## Pending Measurements
+After `scripts/run_benchmarks.sh` has been executed on the RTX 4060 Laptop GPU, this document should be populated from `results/experiments.csv` and `results/experiments.jsonl` with:
 
-*Due to the lack of an NVIDIA GPU in the current environment, benchmarking cannot be performed. This document will be updated with actual measured results, interpretations, and conclusions once the executable is run locally on the target hardware.*
+- kernel-by-kernel median/p95/minimum latency
+- GFLOPS from median kernel latency
+- H2D/D2H/end-to-end medians
+- workload-specific winner/regression analysis
+- cuBLAS comparisons
+- Tensor Core comparisons
+- repeatability/variance observations
+
+No fabricated values belong here.

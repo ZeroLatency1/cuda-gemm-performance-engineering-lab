@@ -1,12 +1,20 @@
 {
   "project": "CUDA GEMM Performance Engineering Lab",
   "status": {
-    "implementation": "CLEAN_STARTER_READY",
+    "implementation": "IMPLEMENTED",
     "build": "NOT_YET_VERIFIED_ON_TARGET",
     "correctness": "NOT_YET_VERIFIED_ON_TARGET",
     "benchmark": "NOT_YET_VERIFIED_ON_TARGET",
-    "profiling": "AVAILABLE_IF_TOOL_CAN_ATTACH",
-    "documentation": "IN_PROGRESS"
+    "profiling": "NOT_YET_VERIFIED_ON_TARGET",
+    "documentation": "PASS"
+  },
+  "target": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "compute_capability": "8.9",
+    "os": "Ubuntu 24.04 under WSL2",
+    "cuda_toolkit": "12.0.140",
+    "compiler": "GCC 13.3.0",
+    "cmake": "3.28.x"
   },
   "current_best_kernel": null,
   "best_verified_result": null,
@@ -15,14 +23,17 @@
   "last_successful_correctness_run": null,
   "unsupported_features": [],
   "known_limitations": [
-    "Nsight tools may be limited by the WSL2 GPU virtualization environment.",
-    "Tensor Core WMMA path requires M, N, and K divisible by 16.",
-    "CPU verification for extremely large GEMMs may be intentionally disabled to avoid impractical reference runtimes."
+    "Target GPU execution is required to produce official performance results.",
+    "WMMA Tensor Core path requires M, N, and K divisible by 16.",
+    "Vectorized float4 path requires N divisible by 4.",
+    "CPU reference verification is intentionally blocked for extremely large FLOP counts; use --no-verify for those performance runs.",
+    "Nsight Compute/System availability is environment-dependent under WSL2. Any attach or permission failure is recorded rather than fabricated."
   ],
   "known_regressions": [],
   "open_investigations": [
-    "Establish clean baseline measurements on the target RTX 4060 Laptop GPU.",
-    "Validate numerical error thresholds against representative FP32 workloads.",
-    "Profile baseline kernels where the installed Nsight tooling can attach."
+    "Measure the clean baseline and full workload matrix on the target RTX 4060 Laptop GPU.",
+    "Profile winning and regressing kernels with Nsight Compute where attachment is possible.",
+    "Use measured register usage, occupancy, memory throughput, and instruction metrics to accept or reject targeted variants.",
+    "Populate optimization_log.md and final_report.md only from recorded experiments."
   ]
 }

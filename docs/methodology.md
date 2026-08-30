@@ -1,23 +1,45 @@
 # Benchmark Methodology
 
-Kernel timing uses CUDA events. GPU kernel timing is separated from host-device transfer timing.
+## Timing
 
-Reported statistics:
+GPU kernel timing uses CUDA events. Warmups run before timed iterations, and each timed iteration records one CUDA-event interval around the kernel launch. Reported kernel statistics are median, p95, and minimum latency.
 
-- median
-- p95
-- minimum
+Transfer measurements are independent from kernel timing:
+
+- **H2D:** host-to-device input copies only
+- **D2H:** device-to-host output copy only
+- **End-to-end:** H2D + kernel + D2H in one measured interval
+
+Transfer timings are never substituted for kernel latency in GFLOPS.
+
+## Throughput
 
 For GEMM:
 
-`FLOPs = 2 * M * N * K`
+`FLOPs = 2 × M × N × K`
 
-GFLOPS uses the reported median kernel latency.
+`GFLOPS = FLOPs / (median_kernel_time_ms × 1e6)`
 
-Correctness compares against the CPU reference using max absolute error and a relative error denominator floor to avoid instability near zero.
+The same median latency reported in the result record is used in the throughput calculation.
 
-Unverified performance runs are recorded as `NOT_VERIFIED`, not `FAIL`.
+## Correctness
+
+The CPU reference uses the project’s row-major GEMM implementation. The error metric is:
+
+`abs_error = |got - reference|`
+
+`relative_error = abs_error / max(|reference|, 1e-3)`
+
+A result passes when every element satisfies `abs_error <= 1e-3 OR relative_error <= 1e-2`, and no NaN/Inf is observed. The denominator floor prevents near-zero reference values from dominating the metric.
+
+For FP16 Tensor Core/cuBLAS tests, inputs are quantized to FP16 first and the CPU reference accumulates the quantized operands in FP32.
+
+## Workload control
+
+Comparisons use the same input seed, dimensions, warmups, iteration count, dtype, and execution environment unless an experiment explicitly records a changed condition. Important experiments carry `parent_experiment_id`, `baseline_experiment_id`, and `optimization_description` metadata.
 
 ## Result preservation
 
-The benchmark logger is append-only. Each successful kernel benchmark receives a unique experiment ID and is written to both `results/experiments.csv` and `results/experiments.jsonl`. A per-experiment JSON record is also written under `results/raw/`. The result directory is resolved from the executable location under the normal CMake `<project>/build` layout, so launching the executable from either the project root or `build/` does not create a second results tree. `KUCH_RESULTS_DIR` can be used to override the output directory explicitly.
+Every attempted configuration gets a permanent `EXP-XXXXXX` identifier. Records are appended to both `results/experiments.csv` and `results/experiments.jsonl`; a unique raw JSON artifact is also stored. The CSV schema is checked before append so incompatible history is not silently mixed.
+
+`NOT_VERIFIED` means performance was measured with verification disabled. It is not the same as `FAIL`.

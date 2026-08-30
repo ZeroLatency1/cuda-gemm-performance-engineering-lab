@@ -2,8 +2,10 @@
 #include "correctness.h"
 #include "gemm.h"
 #include "utils.h"
+
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -12,31 +14,35 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <numeric>
+#include <limits>
 #include <random>
 #include <sstream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
 
-static fs::path project_results_dir() {
-    if (const char* env = std::getenv("KUCH_RESULTS_DIR")) {
-        if (*env) return fs::path(env);
-    }
+namespace {
+
+fs::path project_root() {
 #if defined(__linux__)
     std::error_code ec;
     const fs::path exe = fs::read_symlink("/proc/self/exe", ec);
-    if (!ec && !exe.empty()) {
-        // CMake places the executable in <project>/build/.
-        const fs::path candidate = exe.parent_path().parent_path() / "results";
-        if (fs::exists(candidate.parent_path())) return candidate;
-    }
+    if (!ec && !exe.empty() && exe.parent_path().filename() == "build") return exe.parent_path().parent_path();
 #endif
-    return fs::path("results");
+    return fs::current_path();
 }
 
-static std::vector<float> make_input(size_t n, uint32_t seed) {
+fs::path project_results_dir(const BenchmarkConfig& cfg) {
+    if (!cfg.output_dir.empty()) return fs::path(cfg.output_dir);
+    if (const char* env = std::getenv("KUCH_RESULTS_DIR")) {
+        if (*env) return fs::path(env);
+    }
+    return project_root() / "results";
+}
+
+std::vector<float> make_input(size_t n, uint32_t seed) {
     std::vector<float> v(n);
     uint32_t x = seed * 1664525u + 1013904223u;
     for (float& value : v) {
@@ -47,7 +53,7 @@ static std::vector<float> make_input(size_t n, uint32_t seed) {
     return v;
 }
 
-static double percentile(std::vector<double> values, double p) {
+double percentile(std::vector<double> values, double p) {
     if (values.empty()) return 0.0;
     std::sort(values.begin(), values.end());
     const double pos = p * static_cast<double>(values.size() - 1);
@@ -57,231 +63,18 @@ static double percentile(std::vector<double> values, double p) {
     return values[lo] * (1.0 - frac) + values[hi] * frac;
 }
 
-static void launch_kernel(const BenchmarkConfig& cfg,
-                          const float* dA, const float* dB, float* dC,
-                          const __half* dAh, const __half* dBh) {
-    if (cfg.dtype == "fp16") {
-        if (cfg.kernel != "tensorcore") {
-            throw std::runtime_error("fp16 currently supports kernel=tensorcore only");
-        }
-        if ((cfg.M % 16) || (cfg.N % 16) || (cfg.K % 16)) {
-            throw std::runtime_error("tensorcore requires M, N, and K divisible by 16");
-        }
-        tensor_core_cuda_gemm(cfg.M, cfg.N, cfg.K, dAh, dBh, dC);
-        CUDA_CHECK_LAST();
-        return;
+std::string csv_escape(const std::string& s) {
+    std::string out = "\"";
+    for (char c : s) {
+        if (c == '"') out += "\"\"";
+        else out += c;
     }
-
-    if (cfg.kernel == "naive") naive_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
-    else if (cfg.kernel == "coalesced") coalesced_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
-    else if (cfg.kernel == "shared16") shared_mem_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC, 16);
-    else if (cfg.kernel == "shared32") shared_mem_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC, 32);
-    else if (cfg.kernel == "register") register_tiled_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
-    else if (cfg.kernel == "register64") register_tiled_cuda_gemm_64(cfg.M, cfg.N, cfg.K, dA, dB, dC);
-    else if (cfg.kernel == "vectorized") {
-        if ((cfg.N % 4) != 0) throw std::runtime_error("vectorized requires N divisible by 4");
-        vectorized_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
-    } else if (cfg.kernel == "warp") warp_shuffle_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
-    else if (cfg.kernel == "cublas") cublas_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
-    else throw std::runtime_error("unsupported kernel: " + cfg.kernel);
-    CUDA_CHECK_LAST();
+    out += '"';
+    return out;
 }
 
-static std::vector<std::string> kernels_for(const BenchmarkConfig& cfg) {
-    if (cfg.dtype == "fp16") return {"tensorcore"};
-    if (cfg.kernel != "all") return {cfg.kernel};
-    return {"naive", "coalesced", "shared16", "shared32", "register", "register64", "vectorized", "warp", "cublas"};
-}
-
-static BenchmarkResult benchmark_one(const BenchmarkConfig& cfg, const std::string& kernel,
-                                     const std::vector<float>& A, const std::vector<float>& B,
-                                     const std::vector<float>& ref,
-                                     const std::vector<__half>& Ah, const std::vector<__half>& Bh) {
-    BenchmarkConfig run = cfg;
-    run.kernel = kernel;
-
-    const size_t a_count = static_cast<size_t>(cfg.M) * cfg.K;
-    const size_t b_count = static_cast<size_t>(cfg.K) * cfg.N;
-    const size_t c_count = static_cast<size_t>(cfg.M) * cfg.N;
-
-    if (kernel == "cpu") {
-        if (cfg.dtype != "fp32") throw std::runtime_error("cpu kernel currently supports fp32 only");
-        std::vector<float> got(c_count, 0.0f);
-        for (int i = 0; i < cfg.warmup; ++i) cpu_gemm(cfg.M, cfg.N, cfg.K, A.data(), B.data(), got.data());
-        std::vector<double> samples;
-        samples.reserve(cfg.iterations);
-        for (int i = 0; i < cfg.iterations; ++i) {
-            const auto t0 = std::chrono::steady_clock::now();
-            cpu_gemm(cfg.M, cfg.N, cfg.K, A.data(), B.data(), got.data());
-            const auto t1 = std::chrono::steady_clock::now();
-            samples.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
-        }
-        BenchmarkResult r;
-        r.timestamp = utc_timestamp(); r.experiment_name = cfg.experiment_name;
-        r.git_commit = current_git_commit(); r.gpu = gpu_name();
-        r.compute_capability = gpu_compute_capability(); r.driver = driver_version();
-        r.cuda_runtime = cuda_runtime_version_string(); r.kernel = kernel; r.dtype = cfg.dtype;
-        r.M = cfg.M; r.N = cfg.N; r.K = cfg.K; r.warmup = cfg.warmup; r.iterations = cfg.iterations;
-        r.median_ms = percentile(samples, 0.50); r.p95_ms = percentile(samples, 0.95);
-        r.min_ms = *std::min_element(samples.begin(), samples.end());
-        const double flops = 2.0 * static_cast<double>(cfg.M) * cfg.N * cfg.K;
-        r.gflops = flops / (r.median_ms * 1e6);
-        if (!cfg.verify) r.verification_status = "NOT_VERIFIED";
-        else {
-            const CorrectnessMetrics m = compare_outputs(ref, got);
-            r.max_abs_err = m.max_abs; r.max_rel_err = m.max_rel;
-            r.verification_status = m.pass ? "PASS" : "FAIL";
-        }
-        return r;
-    }
-
-    float *dA = nullptr, *dB = nullptr, *dC = nullptr;
-    __half *dAh = nullptr, *dBh = nullptr;
-
-    CHECK_CUDA(cudaMalloc(&dC, c_count * sizeof(float)));
-    if (cfg.dtype == "fp16") {
-        CHECK_CUDA(cudaMalloc(&dAh, a_count * sizeof(__half)));
-        CHECK_CUDA(cudaMalloc(&dBh, b_count * sizeof(__half)));
-        CHECK_CUDA(cudaMemcpy(dAh, Ah.data(), a_count * sizeof(__half), cudaMemcpyHostToDevice));
-        CHECK_CUDA(cudaMemcpy(dBh, Bh.data(), b_count * sizeof(__half), cudaMemcpyHostToDevice));
-    } else {
-        CHECK_CUDA(cudaMalloc(&dA, a_count * sizeof(float)));
-        CHECK_CUDA(cudaMalloc(&dB, b_count * sizeof(float)));
-        CHECK_CUDA(cudaMemcpy(dA, A.data(), a_count * sizeof(float), cudaMemcpyHostToDevice));
-        CHECK_CUDA(cudaMemcpy(dB, B.data(), b_count * sizeof(float), cudaMemcpyHostToDevice));
-    }
-
-    CHECK_CUDA(cudaMemset(dC, 0, c_count * sizeof(float)));
-    for (int i = 0; i < cfg.warmup; ++i) launch_kernel(run, dA, dB, dC, dAh, dBh);
-    CHECK_CUDA(cudaDeviceSynchronize());
-
-    cudaEvent_t start{}, stop{};
-    CHECK_CUDA(cudaEventCreate(&start));
-    CHECK_CUDA(cudaEventCreate(&stop));
-    std::vector<double> samples;
-    samples.reserve(cfg.iterations);
-
-    for (int i = 0; i < cfg.iterations; ++i) {
-        CHECK_CUDA(cudaEventRecord(start));
-        launch_kernel(run, dA, dB, dC, dAh, dBh);
-        CHECK_CUDA(cudaEventRecord(stop));
-        CHECK_CUDA(cudaEventSynchronize(stop));
-        float elapsed = 0.0f;
-        CHECK_CUDA(cudaEventElapsedTime(&elapsed, start, stop));
-        samples.push_back(static_cast<double>(elapsed));
-    }
-
-    std::vector<float> got(c_count);
-    CHECK_CUDA(cudaMemcpy(got.data(), dC, c_count * sizeof(float), cudaMemcpyDeviceToHost));
-
-    BenchmarkResult r;
-    r.timestamp = utc_timestamp();
-    r.experiment_name = cfg.experiment_name;
-    r.git_commit = current_git_commit();
-    r.gpu = gpu_name();
-    r.compute_capability = gpu_compute_capability();
-    r.driver = driver_version();
-    r.cuda_runtime = cuda_runtime_version_string();
-    r.kernel = kernel;
-    r.dtype = cfg.dtype;
-    r.M = cfg.M; r.N = cfg.N; r.K = cfg.K;
-    r.warmup = cfg.warmup; r.iterations = cfg.iterations;
-
-    r.median_ms = percentile(samples, 0.50);
-    r.p95_ms = percentile(samples, 0.95);
-    r.min_ms = *std::min_element(samples.begin(), samples.end());
-    const double flops = 2.0 * static_cast<double>(cfg.M) * cfg.N * cfg.K;
-    r.gflops = flops / (r.median_ms * 1e6);
-
-    if (!cfg.verify) {
-        r.verification_status = "NOT_VERIFIED";
-        r.notes = "verification disabled by --no-verify";
-    } else {
-        const CorrectnessMetrics m = compare_outputs(ref, got);
-        r.max_abs_err = m.max_abs;
-        r.max_rel_err = m.max_rel;
-        r.verification_status = m.pass ? "PASS" : "FAIL";
-        if (m.saw_nan) r.notes = "NaN detected";
-        else if (m.saw_inf) r.notes = "Inf detected";
-    }
-
-    CHECK_CUDA(cudaEventDestroy(start));
-    CHECK_CUDA(cudaEventDestroy(stop));
-    CHECK_CUDA(cudaFree(dC));
-    if (dA) CHECK_CUDA(cudaFree(dA));
-    if (dB) CHECK_CUDA(cudaFree(dB));
-    if (dAh) CHECK_CUDA(cudaFree(dAh));
-    if (dBh) CHECK_CUDA(cudaFree(dBh));
-    return r;
-}
-
-BenchmarkResult run_benchmark(const BenchmarkConfig& cfg) {
-    if (cfg.M <= 0 || cfg.N <= 0 || cfg.K <= 0) throw std::runtime_error("dimensions must be positive");
-    if (cfg.warmup < 0 || cfg.iterations <= 0) throw std::runtime_error("warmup must be >=0 and iterations >0");
-    if (cfg.dtype != "fp32" && cfg.dtype != "fp16") throw std::runtime_error("dtype must be fp32 or fp16");
-
-    const size_t a_count = static_cast<size_t>(cfg.M) * cfg.K;
-    const size_t b_count = static_cast<size_t>(cfg.K) * cfg.N;
-    const size_t c_count = static_cast<size_t>(cfg.M) * cfg.N;
-
-    const auto A = make_input(a_count, static_cast<uint32_t>(cfg.seed));
-    const auto B = make_input(b_count, static_cast<uint32_t>(cfg.seed + 1));
-    std::vector<float> ref(c_count, 0.0f);
-    if (cfg.verify) {
-        if (cfg.M * 1LL * cfg.N * cfg.K > 3000000000LL) {
-            throw std::runtime_error("CPU verification reference is intentionally blocked for very large GEMMs; use --no-verify or a smaller workload");
-        }
-        cpu_gemm(cfg.M, cfg.N, cfg.K, A.data(), B.data(), ref.data());
-    }
-
-    std::vector<__half> Ah;
-    std::vector<__half> Bh;
-    if (cfg.dtype == "fp16") {
-        Ah.resize(a_count); Bh.resize(b_count);
-        for (size_t i = 0; i < a_count; ++i) Ah[i] = __float2half(A[i]);
-        for (size_t i = 0; i < b_count; ++i) Bh[i] = __float2half(B[i]);
-        if (cfg.verify) {
-            for (size_t i = 0; i < c_count; ++i) ref[i] = 0.0f;
-            // Reference for FP16 input, FP32 accumulate.
-            for (int i = 0; i < cfg.M; ++i)
-                for (int k = 0; k < cfg.K; ++k) {
-                    const float a = __half2float(Ah[static_cast<size_t>(i) * cfg.K + k]);
-                    for (int j = 0; j < cfg.N; ++j)
-                        ref[static_cast<size_t>(i) * cfg.N + j] += a * __half2float(Bh[static_cast<size_t>(k) * cfg.N + j]);
-                }
-        }
-    }
-
-    const auto kernels = kernels_for(cfg);
-    BenchmarkResult first{};
-    bool have_first = false;
-    for (const std::string& k : kernels) {
-        try {
-            BenchmarkResult r = benchmark_one(cfg, k, A, B, ref, Ah, Bh);
-            if (!have_first) { first = r; have_first = true; }
-            std::cout << std::left << std::setw(16) << k
-                      << std::right << std::fixed << std::setprecision(4)
-                      << std::setw(10) << r.median_ms
-                      << std::setw(10) << r.p95_ms
-                      << std::setw(10) << r.min_ms
-                      << std::setw(14) << r.gflops
-                      << "  " << std::setw(13) << r.verification_status
-                      << "  abs=" << std::scientific << std::setprecision(3) << r.max_abs_err
-                      << " rel=" << r.max_rel_err << '\n';
-            std::cout << std::defaultfloat;
-            append_experiment(r);
-        } catch (const std::exception& e) {
-            std::cerr << std::left << std::setw(16) << k << "UNSUPPORTED/ERROR: " << e.what() << '\n';
-        }
-    }
-    if (!have_first) throw std::runtime_error("no runnable kernels for requested configuration");
-    return first;
-}
-
-
-static std::string json_escape(const std::string& s) {
+std::string json_escape(const std::string& s) {
     std::string out;
-    out.reserve(s.size() + 8);
     for (char c : s) {
         switch (c) {
             case '\\': out += "\\\\"; break;
@@ -295,85 +88,469 @@ static std::string json_escape(const std::string& s) {
     return out;
 }
 
-static unsigned long long next_experiment_id(const fs::path& results_dir) {
-    fs::create_directories(results_dir);
-    const fs::path p = results_dir / "experiments.csv";
-    unsigned long long max_id = 0;
-    std::ifstream in(p);
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.rfind("EXP-", 0) == 0) {
-            try { max_id = std::max(max_id, std::stoull(line.substr(4))); } catch (...) {}
-        }
-    }
-    return max_id + 1;
+std::string num(double x) {
+    if (!std::isfinite(x)) return "null";
+    std::ostringstream out;
+    out << std::setprecision(12) << x;
+    return out.str();
 }
 
-void append_experiment(BenchmarkResult result) {
-    const fs::path results_dir = project_results_dir();
-    fs::create_directories(results_dir / "raw");
-    fs::create_directories(results_dir / "summaries");
-    if (result.experiment_id.empty()) {
-        std::ostringstream id;
-        id << "EXP-" << std::setw(6) << std::setfill('0') << next_experiment_id(results_dir);
-        result.experiment_id = id.str();
+unsigned long long max_experiment_id(const fs::path& results_dir) {
+    unsigned long long max_id = 0;
+    const fs::path csv = results_dir / "experiments.csv";
+    std::ifstream in(csv);
+    std::string line;
+    while (std::getline(in, line)) {
+        const auto pos = line.find("EXP-");
+        if (pos == std::string::npos) continue;
+        try { max_id = std::max(max_id, std::stoull(line.substr(pos + 4))); } catch (...) {}
+    }
+    const fs::path raw_dir = results_dir / "raw";
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(raw_dir, ec)) {
+        if (ec || !entry.is_regular_file()) continue;
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("EXP-", 0) != 0) continue;
+        try { max_id = std::max(max_id, std::stoull(name.substr(4, 6))); } catch (...) {}
+    }
+    return max_id;
+}
+
+std::string allocate_experiment_id(const fs::path& results_dir) {
+    std::ostringstream id;
+    id << "EXP-" << std::setw(6) << std::setfill('0') << (max_experiment_id(results_dir) + 1);
+    return id.str();
+}
+
+void write_header_if_needed(const fs::path& csv) {
+    constexpr const char* header =
+        "experiment_id,timestamp,hostname,os,wsl_status,experiment_name,git_commit,gpu,gpu_uuid,compute_capability,driver,cuda_runtime,cuda_toolkit,compiler,cmake_version,kernel,kernel_variant,dtype,M,N,K,warmup,iterations,median_ms,p95_ms,min_ms,gflops,h2d_ms,d2h_ms,end_to_end_ms,end_to_end_gflops,verification_status,max_abs_error,max_rel_error,status,cuda_errors,runtime_errors,environment_warnings,parent_experiment_id,baseline_experiment_id,optimization_description,notes";
+    if (!fs::exists(csv) || fs::file_size(csv) == 0) {
+        std::ofstream out(csv, std::ios::app);
+        if (!out) throw std::runtime_error("cannot open experiment CSV for append: " + csv.string());
+        out << header << '\n';
+        return;
+    }
+    std::ifstream in(csv);
+    std::string existing;
+    std::getline(in, existing);
+    if (existing != header) {
+        throw std::runtime_error("results/experiments.csv schema differs from the current append-only schema; historical data was not modified");
+    }
+}
+
+void append_csv_record(const fs::path& csv, const BenchmarkResult& r) {
+    std::ofstream out(csv, std::ios::app);
+    if (!out) throw std::runtime_error("cannot open experiment CSV for append: " + csv.string());
+    out << csv_escape(r.experiment_id) << ',' << csv_escape(r.timestamp) << ',' << csv_escape(r.hostname) << ','
+        << csv_escape(r.os) << ',' << csv_escape(r.wsl_status) << ',' << csv_escape(r.experiment_name) << ','
+        << csv_escape(r.git_commit) << ',' << csv_escape(r.gpu) << ',' << csv_escape(r.gpu_uuid) << ','
+        << csv_escape(r.compute_capability) << ',' << csv_escape(r.driver) << ',' << csv_escape(r.cuda_runtime) << ','
+        << csv_escape(r.cuda_toolkit) << ',' << csv_escape(r.compiler) << ',' << csv_escape(r.cmake_version) << ','
+        << csv_escape(r.kernel) << ',' << csv_escape(r.kernel_variant) << ',' << csv_escape(r.dtype) << ','
+        << r.M << ',' << r.N << ',' << r.K << ',' << r.warmup << ',' << r.iterations << ','
+        << num(r.median_ms) << ',' << num(r.p95_ms) << ',' << num(r.min_ms) << ',' << num(r.gflops) << ','
+        << num(r.h2d_ms) << ',' << num(r.d2h_ms) << ',' << num(r.end_to_end_ms) << ',' << num(r.end_to_end_gflops) << ','
+        << csv_escape(r.verification_status) << ',' << num(r.max_abs_error) << ',' << num(r.max_rel_error) << ','
+        << csv_escape(r.status) << ',' << csv_escape(r.cuda_errors) << ',' << csv_escape(r.runtime_errors) << ','
+        << csv_escape(r.environment_warnings) << ',' << csv_escape(r.parent_experiment_id) << ','
+        << csv_escape(r.baseline_experiment_id) << ',' << csv_escape(r.optimization_description) << ',' << csv_escape(r.notes) << '\n';
+}
+
+std::string json_record(const BenchmarkResult& r) {
+    std::ostringstream j;
+    j << "{"
+      << "\"experiment_id\":\"" << json_escape(r.experiment_id) << "\"," 
+      << "\"timestamp\":\"" << json_escape(r.timestamp) << "\"," 
+      << "\"hostname\":\"" << json_escape(r.hostname) << "\"," 
+      << "\"os\":\"" << json_escape(r.os) << "\"," 
+      << "\"wsl_status\":\"" << json_escape(r.wsl_status) << "\"," 
+      << "\"experiment_name\":\"" << json_escape(r.experiment_name) << "\"," 
+      << "\"git_commit\":\"" << json_escape(r.git_commit) << "\"," 
+      << "\"gpu\":\"" << json_escape(r.gpu) << "\"," 
+      << "\"gpu_uuid\":\"" << json_escape(r.gpu_uuid) << "\"," 
+      << "\"compute_capability\":\"" << json_escape(r.compute_capability) << "\"," 
+      << "\"driver\":\"" << json_escape(r.driver) << "\"," 
+      << "\"cuda_runtime\":\"" << json_escape(r.cuda_runtime) << "\"," 
+      << "\"cuda_toolkit\":\"" << json_escape(r.cuda_toolkit) << "\"," 
+      << "\"compiler\":\"" << json_escape(r.compiler) << "\"," 
+      << "\"cmake_version\":\"" << json_escape(r.cmake_version) << "\"," 
+      << "\"kernel\":\"" << json_escape(r.kernel) << "\"," 
+      << "\"kernel_variant\":\"" << json_escape(r.kernel_variant) << "\"," 
+      << "\"dtype\":\"" << json_escape(r.dtype) << "\"," 
+      << "\"M\":" << r.M << ",\"N\":" << r.N << ",\"K\":" << r.K
+      << ",\"warmup\":" << r.warmup << ",\"iterations\":" << r.iterations
+      << ",\"median_ms\":" << num(r.median_ms) << ",\"p95_ms\":" << num(r.p95_ms) << ",\"min_ms\":" << num(r.min_ms)
+      << ",\"gflops\":" << num(r.gflops) << ",\"h2d_ms\":" << num(r.h2d_ms) << ",\"d2h_ms\":" << num(r.d2h_ms)
+      << ",\"end_to_end_ms\":" << num(r.end_to_end_ms) << ",\"end_to_end_gflops\":" << num(r.end_to_end_gflops)
+      << ",\"verification_status\":\"" << json_escape(r.verification_status) << "\""
+      << ",\"max_abs_error\":" << num(r.max_abs_error) << ",\"max_rel_error\":" << num(r.max_rel_error)
+      << ",\"status\":\"" << json_escape(r.status) << "\""
+      << ",\"cuda_errors\":\"" << json_escape(r.cuda_errors) << "\""
+      << ",\"runtime_errors\":\"" << json_escape(r.runtime_errors) << "\""
+      << ",\"environment_warnings\":\"" << json_escape(r.environment_warnings) << "\""
+      << ",\"parent_experiment_id\":\"" << json_escape(r.parent_experiment_id) << "\""
+      << ",\"baseline_experiment_id\":\"" << json_escape(r.baseline_experiment_id) << "\""
+      << ",\"optimization_description\":\"" << json_escape(r.optimization_description) << "\""
+      << ",\"notes\":\"" << json_escape(r.notes) << "\"}";
+    return j.str();
+}
+
+BenchmarkResult base_result(const BenchmarkConfig& cfg, const std::string& kernel) {
+    BenchmarkResult r;
+    r.timestamp = utc_timestamp();
+    r.hostname = hostname_string();
+    r.os = os_description();
+    r.wsl_status = wsl_status();
+    r.experiment_name = cfg.experiment_name;
+    r.git_commit = current_git_commit();
+    r.gpu = gpu_name();
+    r.gpu_uuid = gpu_uuid();
+    r.compute_capability = gpu_compute_capability();
+    r.driver = driver_version();
+    r.cuda_runtime = cuda_runtime_version_string();
+    r.cuda_toolkit = cuda_toolkit_version_string();
+    r.compiler = host_compiler_version_string();
+    r.cmake_version = cmake_version_string();
+    r.kernel = kernel;
+    if (kernel == "shared16") r.kernel_variant = "shared_tile_16x16";
+    else if (kernel == "shared32") r.kernel_variant = "shared_tile_32x32";
+    else if (kernel == "register") r.kernel_variant = "register_tile_32x32_bk8_tm2tn2";
+    else if (kernel == "register64") r.kernel_variant = "register_tile_64x64_bk8_tm4tn4";
+    else if (kernel == "vectorized") r.kernel_variant = "float4_output";
+    else if (kernel == "tensorcore") r.kernel_variant = "wmma_16x16x16";
+    else if (kernel == "cublas") r.kernel_variant = cfg.dtype == "fp16" ? "cublas_gemmex_tensorop" : "cublas_sgemm";
+    else r.kernel_variant = kernel;
+    r.dtype = cfg.dtype;
+    r.M = cfg.M; r.N = cfg.N; r.K = cfg.K;
+    r.warmup = cfg.warmup; r.iterations = cfg.iterations;
+    r.parent_experiment_id = cfg.parent_experiment_id;
+    r.baseline_experiment_id = cfg.baseline_experiment_id;
+    r.optimization_description = cfg.optimization_description;
+    r.environment_warnings = environment_warnings();
+    return r;
+}
+
+bool supported(const BenchmarkConfig& cfg, const std::string& kernel, std::string& reason) {
+    if (kernel == "cpu") {
+        if (cfg.dtype != "fp32") { reason = "CPU reference benchmark currently accepts dtype=fp32 only"; return false; }
+        return true;
+    }
+    if (kernel == "tensorcore") {
+        if (cfg.dtype != "fp16") { reason = "WMMA Tensor Core path is exposed for dtype=fp16"; return false; }
+        if ((cfg.M % 16) || (cfg.N % 16) || (cfg.K % 16)) { reason = "WMMA requires M, N, and K divisible by 16"; return false; }
+        return true;
+    }
+    if (kernel == "cublas") return true;
+    if (cfg.dtype == "fp16") { reason = "custom non-Tensor-Core kernels are fp32 implementations"; return false; }
+    if (kernel == "vectorized" && cfg.N % 4 != 0) { reason = "float4 vectorized kernel requires N divisible by 4"; return false; }
+    const std::vector<std::string> names = {"naive","coalesced","shared16","shared32","register","register64","vectorized","warp"};
+    if (std::find(names.begin(), names.end(), kernel) == names.end()) { reason = "unknown kernel"; return false; }
+    return true;
+}
+
+void launch_kernel(const BenchmarkConfig& cfg,
+                   const std::string& kernel,
+                   const float* dA, const float* dB, float* dC,
+                   const __half* dAh, const __half* dBh) {
+    if (kernel == "naive") naive_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
+    else if (kernel == "coalesced") coalesced_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
+    else if (kernel == "shared16") shared_mem_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC, 16);
+    else if (kernel == "shared32") shared_mem_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC, 32);
+    else if (kernel == "register") register_tiled_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
+    else if (kernel == "register64") register_tiled_cuda_gemm_64(cfg.M, cfg.N, cfg.K, dA, dB, dC);
+    else if (kernel == "vectorized") vectorized_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
+    else if (kernel == "warp") warp_shuffle_cuda_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
+    else if (kernel == "cublas") {
+        if (cfg.dtype == "fp16") cublas_gemm_half(cfg.M, cfg.N, cfg.K, dAh, dBh, dC);
+        else cublas_gemm(cfg.M, cfg.N, cfg.K, dA, dB, dC);
+    } else if (kernel == "tensorcore") tensor_core_cuda_gemm(cfg.M, cfg.N, cfg.K, dAh, dBh, dC);
+    else throw std::runtime_error("unsupported kernel name: " + kernel);
+    CUDA_CHECK_LAST();
+}
+
+std::vector<std::string> kernels_for(const BenchmarkConfig& cfg) {
+    if (cfg.kernel != "all") return {cfg.kernel};
+    if (cfg.dtype == "fp16") return {"tensorcore", "cublas"};
+    return {"naive", "coalesced", "shared16", "shared32", "register", "register64", "vectorized", "warp", "cublas"};
+}
+
+void measure_transfers_fp32(const std::vector<float>& A, const std::vector<float>& B, std::vector<float>& C,
+                            float* dA, float* dB, float* dC, int iterations,
+                            double& h2d_ms, double& d2h_ms, double& end_to_end_ms,
+                            const BenchmarkConfig& cfg, const std::string& kernel) {
+    std::vector<double> h2d, d2h, e2e;
+    h2d.reserve(iterations); d2h.reserve(iterations); e2e.reserve(iterations);
+    cudaEvent_t start{}, stop{};
+    CHECK_CUDA(cudaEventCreate(&start)); CHECK_CUDA(cudaEventCreate(&stop));
+    for (int i = 0; i < iterations; ++i) {
+        CHECK_CUDA(cudaEventRecord(start));
+        CHECK_CUDA(cudaMemcpy(dA, A.data(), A.size() * sizeof(float), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(dB, B.data(), B.size() * sizeof(float), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaEventRecord(stop)); CHECK_CUDA(cudaEventSynchronize(stop));
+        float ms = 0.0f; CHECK_CUDA(cudaEventElapsedTime(&ms, start, stop)); h2d.push_back(ms);
+
+        CHECK_CUDA(cudaEventRecord(start));
+        CHECK_CUDA(cudaMemcpy(C.data(), dC, C.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaEventRecord(stop)); CHECK_CUDA(cudaEventSynchronize(stop));
+        CHECK_CUDA(cudaEventElapsedTime(&ms, start, stop)); d2h.push_back(ms);
+
+        CHECK_CUDA(cudaEventRecord(start));
+        CHECK_CUDA(cudaMemcpy(dA, A.data(), A.size() * sizeof(float), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(dB, B.data(), B.size() * sizeof(float), cudaMemcpyHostToDevice));
+        launch_kernel(cfg, kernel, dA, dB, dC, nullptr, nullptr);
+        CHECK_CUDA(cudaMemcpy(C.data(), dC, C.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaEventRecord(stop)); CHECK_CUDA(cudaEventSynchronize(stop));
+        CHECK_CUDA(cudaEventElapsedTime(&ms, start, stop)); e2e.push_back(ms);
+    }
+    CHECK_CUDA(cudaEventDestroy(start)); CHECK_CUDA(cudaEventDestroy(stop));
+    h2d_ms = percentile(h2d, 0.50); d2h_ms = percentile(d2h, 0.50); end_to_end_ms = percentile(e2e, 0.50);
+}
+
+void measure_transfers_fp16(const std::vector<__half>& A, const std::vector<__half>& B, std::vector<float>& C,
+                            __half* dA, __half* dB, float* dC, int iterations,
+                            double& h2d_ms, double& d2h_ms, double& end_to_end_ms,
+                            const BenchmarkConfig& cfg, const std::string& kernel) {
+    std::vector<double> h2d, d2h, e2e;
+    h2d.reserve(iterations); d2h.reserve(iterations); e2e.reserve(iterations);
+    cudaEvent_t start{}, stop{};
+    CHECK_CUDA(cudaEventCreate(&start)); CHECK_CUDA(cudaEventCreate(&stop));
+    for (int i = 0; i < iterations; ++i) {
+        CHECK_CUDA(cudaEventRecord(start));
+        CHECK_CUDA(cudaMemcpy(dA, A.data(), A.size() * sizeof(__half), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(dB, B.data(), B.size() * sizeof(__half), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaEventRecord(stop)); CHECK_CUDA(cudaEventSynchronize(stop));
+        float ms = 0.0f; CHECK_CUDA(cudaEventElapsedTime(&ms, start, stop)); h2d.push_back(ms);
+
+        CHECK_CUDA(cudaEventRecord(start));
+        CHECK_CUDA(cudaMemcpy(C.data(), dC, C.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaEventRecord(stop)); CHECK_CUDA(cudaEventSynchronize(stop));
+        CHECK_CUDA(cudaEventElapsedTime(&ms, start, stop)); d2h.push_back(ms);
+
+        CHECK_CUDA(cudaEventRecord(start));
+        CHECK_CUDA(cudaMemcpy(dA, A.data(), A.size() * sizeof(__half), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(dB, B.data(), B.size() * sizeof(__half), cudaMemcpyHostToDevice));
+        launch_kernel(cfg, kernel, nullptr, nullptr, dC, dA, dB);
+        CHECK_CUDA(cudaMemcpy(C.data(), dC, C.size() * sizeof(float), cudaMemcpyDeviceToHost));
+        CHECK_CUDA(cudaEventRecord(stop)); CHECK_CUDA(cudaEventSynchronize(stop));
+        CHECK_CUDA(cudaEventElapsedTime(&ms, start, stop)); e2e.push_back(ms);
+    }
+    CHECK_CUDA(cudaEventDestroy(start)); CHECK_CUDA(cudaEventDestroy(stop));
+    h2d_ms = percentile(h2d, 0.50); d2h_ms = percentile(d2h, 0.50); end_to_end_ms = percentile(e2e, 0.50);
+}
+
+BenchmarkResult benchmark_one(const BenchmarkConfig& cfg, const std::string& kernel,
+                              const std::vector<float>& A, const std::vector<float>& B,
+                              const std::vector<float>& ref,
+                              const std::vector<__half>& Ah, const std::vector<__half>& Bh) {
+    BenchmarkResult r = base_result(cfg, kernel);
+    const size_t a_count = static_cast<size_t>(cfg.M) * cfg.K;
+    const size_t b_count = static_cast<size_t>(cfg.K) * cfg.N;
+    const size_t c_count = static_cast<size_t>(cfg.M) * cfg.N;
+    const double flops = 2.0 * static_cast<double>(cfg.M) * cfg.N * cfg.K;
+
+    if (kernel == "cpu") {
+        std::vector<float> got(c_count, 0.0f);
+        std::vector<double> samples;
+        samples.reserve(cfg.iterations);
+        for (int i = 0; i < cfg.warmup; ++i) cpu_gemm(cfg.M, cfg.N, cfg.K, A.data(), B.data(), got.data());
+        for (int i = 0; i < cfg.iterations; ++i) {
+            const auto t0 = std::chrono::steady_clock::now();
+            cpu_gemm(cfg.M, cfg.N, cfg.K, A.data(), B.data(), got.data());
+            const auto t1 = std::chrono::steady_clock::now();
+            samples.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
+        }
+        r.median_ms = percentile(samples, 0.50); r.p95_ms = percentile(samples, 0.95); r.min_ms = *std::min_element(samples.begin(), samples.end());
+        r.gflops = flops / (r.median_ms * 1e6);
+        r.verification_status = cfg.verify ? (compare_outputs(ref, got).pass ? "PASS" : "FAIL") : "NOT_VERIFIED";
+        if (cfg.verify) {
+            const auto m = compare_outputs(ref, got); r.max_abs_error = m.max_abs; r.max_rel_error = m.max_rel;
+            r.status = m.pass ? "PASS" : "ERROR";
+        }
+        r.notes = "CPU wall-clock timing; GPU timing uses CUDA events";
+        return r;
     }
 
-    const fs::path csv = results_dir / "experiments.csv";
-    const fs::path jsonl = results_dir / "experiments.jsonl";
-    const bool header = !fs::exists(csv) || fs::file_size(csv) == 0;
+    float *dA = nullptr, *dB = nullptr, *dC = nullptr;
+    __half *dAh = nullptr, *dBh = nullptr;
+    CHECK_CUDA(cudaMalloc(&dC, c_count * sizeof(float)));
+    if (cfg.dtype == "fp16") {
+        CHECK_CUDA(cudaMalloc(&dAh, a_count * sizeof(__half)));
+        CHECK_CUDA(cudaMalloc(&dBh, b_count * sizeof(__half)));
+        CHECK_CUDA(cudaMemcpy(dAh, Ah.data(), a_count * sizeof(__half), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(dBh, Bh.data(), b_count * sizeof(__half), cudaMemcpyHostToDevice));
+    } else {
+        CHECK_CUDA(cudaMalloc(&dA, a_count * sizeof(float)));
+        CHECK_CUDA(cudaMalloc(&dB, b_count * sizeof(float)));
+        CHECK_CUDA(cudaMemcpy(dA, A.data(), a_count * sizeof(float), cudaMemcpyHostToDevice));
+        CHECK_CUDA(cudaMemcpy(dB, B.data(), b_count * sizeof(float), cudaMemcpyHostToDevice));
+    }
+    CHECK_CUDA(cudaMemset(dC, 0, c_count * sizeof(float)));
 
-    std::ofstream out(csv, std::ios::app);
-    if (!out) throw std::runtime_error("cannot open results/experiments.csv for append");
-    if (header) out << "experiment_id,timestamp,experiment_name,git_commit,GPU,compute_capability,driver,cuda_runtime,kernel,dtype,M,N,K,warmup,iterations,median_ms,p95_ms,min_ms,gflops,verification_status,max_abs_err,max_rel_err,notes\n";
-    out << result.experiment_id << ','
-        << json_escape(result.timestamp) << ','
-        << json_escape(result.experiment_name) << ','
-        << csv_escape(result.git_commit) << ','
-        << csv_escape(result.gpu) << ','
-        << csv_escape(result.compute_capability) << ','
-        << csv_escape(result.driver) << ','
-        << csv_escape(result.cuda_runtime) << ','
-        << json_escape(result.kernel) << ','
-        << json_escape(result.dtype) << ','
-        << result.M << ',' << result.N << ',' << result.K << ','
-        << result.warmup << ',' << result.iterations << ','
-        << std::setprecision(12) << result.median_ms << ',' << result.p95_ms << ',' << result.min_ms << ','
-        << result.gflops << ',' << result.verification_status << ','
-        << result.max_abs_err << ',' << result.max_rel_err << ','
-        << csv_escape(result.notes) << '\n';
+    for (int i = 0; i < cfg.warmup; ++i) launch_kernel(cfg, kernel, dA, dB, dC, dAh, dBh);
+    CHECK_CUDA(cudaDeviceSynchronize());
 
-    std::ofstream jout(jsonl, std::ios::app);
-    if (!jout) throw std::runtime_error("cannot open results/experiments.jsonl for append");
-    const std::string json_record =
-        "{\"experiment_id\":\"" + json_escape(result.experiment_id) +
-        "\",\"timestamp\":\"" + json_escape(result.timestamp) +
-        "\",\"experiment_name\":\"" + json_escape(result.experiment_name) +
-        "\",\"git_commit\":\"" + json_escape(result.git_commit) +
-        "\",\"gpu\":\"" + json_escape(result.gpu) +
-        "\",\"compute_capability\":\"" + json_escape(result.compute_capability) +
-        "\",\"driver\":\"" + json_escape(result.driver) +
-        "\",\"cuda_runtime\":\"" + json_escape(result.cuda_runtime) +
-        "\",\"kernel\":\"" + json_escape(result.kernel) +
-        "\",\"dtype\":\"" + json_escape(result.dtype) +
-        "\",\"M\":" + std::to_string(result.M) +
-        ",\"N\":" + std::to_string(result.N) +
-        ",\"K\":" + std::to_string(result.K) +
-        ",\"warmup\":" + std::to_string(result.warmup) +
-        ",\"iterations\":" + std::to_string(result.iterations) +
-        ",\"median_ms\":" + std::to_string(result.median_ms) +
-        ",\"p95_ms\":" + std::to_string(result.p95_ms) +
-        ",\"min_ms\":" + std::to_string(result.min_ms) +
-        ",\"gflops\":" + std::to_string(result.gflops) +
-        ",\"verification_status\":\"" + json_escape(result.verification_status) +
-        "\",\"max_abs_err\":" + std::to_string(result.max_abs_err) +
-        ",\"max_rel_err\":" + std::to_string(result.max_rel_err) +
-        ",\"notes\":\"" + json_escape(result.notes) + "\"}";
-    jout << json_record << '\n';
+    cudaEvent_t start{}, stop{};
+    CHECK_CUDA(cudaEventCreate(&start)); CHECK_CUDA(cudaEventCreate(&stop));
+    std::vector<double> samples; samples.reserve(cfg.iterations);
+    for (int i = 0; i < cfg.iterations; ++i) {
+        CHECK_CUDA(cudaEventRecord(start));
+        launch_kernel(cfg, kernel, dA, dB, dC, dAh, dBh);
+        CHECK_CUDA(cudaEventRecord(stop)); CHECK_CUDA(cudaEventSynchronize(stop));
+        float ms = 0.0f; CHECK_CUDA(cudaEventElapsedTime(&ms, start, stop)); samples.push_back(ms);
+    }
+    CHECK_CUDA(cudaEventDestroy(start)); CHECK_CUDA(cudaEventDestroy(stop));
 
-    std::ofstream raw(results_dir / "raw" / (result.experiment_id + ".json"), std::ios::trunc);
-    if (!raw) throw std::runtime_error("cannot open per-experiment raw result for write");
-    raw << json_record << '\n';
+    std::vector<float> got(c_count);
+    CHECK_CUDA(cudaMemcpy(got.data(), dC, c_count * sizeof(float), cudaMemcpyDeviceToHost));
+    r.median_ms = percentile(samples, 0.50); r.p95_ms = percentile(samples, 0.95); r.min_ms = *std::min_element(samples.begin(), samples.end());
+    r.gflops = flops / (r.median_ms * 1e6);
 
-    std::cout << "Experiment recorded: " << result.experiment_id << " in " << results_dir << '\n';
+    if (cfg.verify) {
+        const auto m = compare_outputs(ref, got);
+        r.max_abs_error = m.max_abs; r.max_rel_error = m.max_rel;
+        r.verification_status = m.pass ? "PASS" : "FAIL";
+        if (m.saw_nan) r.notes = "NaN detected";
+        else if (m.saw_inf) r.notes = "Inf detected";
+        if (!m.pass) r.status = "ERROR";
+    } else {
+        r.verification_status = "NOT_VERIFIED";
+        r.notes = "verification disabled by --no-verify";
+    }
+
+    // These are separate from kernel-only timing and are never used for kernel GFLOPS.
+    if (cfg.dtype == "fp16") measure_transfers_fp16(Ah, Bh, got, dAh, dBh, dC, std::max(1, std::min(cfg.iterations, 20)), r.h2d_ms, r.d2h_ms, r.end_to_end_ms, cfg, kernel);
+    else measure_transfers_fp32(A, B, got, dA, dB, dC, std::max(1, std::min(cfg.iterations, 20)), r.h2d_ms, r.d2h_ms, r.end_to_end_ms, cfg, kernel);
+    r.end_to_end_gflops = flops / (r.end_to_end_ms * 1e6);
+
+    if (dA) CHECK_CUDA(cudaFree(dA)); if (dB) CHECK_CUDA(cudaFree(dB)); if (dAh) CHECK_CUDA(cudaFree(dAh)); if (dBh) CHECK_CUDA(cudaFree(dBh)); CHECK_CUDA(cudaFree(dC));
+    return r;
+}
+
+} // namespace
+
+void append_experiment(BenchmarkResult result, const BenchmarkConfig& cfg) {
+    const fs::path dir = project_results_dir(cfg);
+    fs::create_directories(dir / "raw");
+    fs::create_directories(dir / "summaries");
+    write_header_if_needed(dir / "experiments.csv");
+    if (result.experiment_id.empty()) result.experiment_id = allocate_experiment_id(dir);
+
+    const std::string json = json_record(result);
+    append_csv_record(dir / "experiments.csv", result);
+    {
+        std::ofstream out(dir / "experiments.jsonl", std::ios::app);
+        if (!out) throw std::runtime_error("cannot open experiments.jsonl for append");
+        out << json << '\n';
+    }
+    {
+        const fs::path raw = dir / "raw" / (result.experiment_id + ".json");
+        if (fs::exists(raw)) throw std::runtime_error("refusing to overwrite existing raw experiment file: " + raw.string());
+        std::ofstream out(raw);
+        if (!out) throw std::runtime_error("cannot create raw experiment file: " + raw.string());
+        out << json << '\n';
+    }
+    std::cout << "Experiment recorded: " << result.experiment_id << " [" << result.status << "]\n";
+}
+
+BenchmarkResult run_benchmark(const BenchmarkConfig& cfg) {
+    if (cfg.M <= 0 || cfg.N <= 0 || cfg.K <= 0) throw std::runtime_error("dimensions must be positive");
+    if (cfg.warmup < 0 || cfg.iterations <= 0) throw std::runtime_error("warmup must be >= 0 and iterations > 0");
+    if (cfg.dtype != "fp32" && cfg.dtype != "fp16") throw std::runtime_error("dtype must be fp32 or fp16");
+
+    int device_count = 0;
+    CHECK_CUDA(cudaGetDeviceCount(&device_count));
+    if (device_count <= 0) throw std::runtime_error("no CUDA-capable device detected");
+
+    const size_t a_count = static_cast<size_t>(cfg.M) * cfg.K;
+    const size_t b_count = static_cast<size_t>(cfg.K) * cfg.N;
+    const size_t c_count = static_cast<size_t>(cfg.M) * cfg.N;
+    const auto A = make_input(a_count, static_cast<uint32_t>(cfg.seed));
+    const auto B = make_input(b_count, static_cast<uint32_t>(cfg.seed + 1));
+
+    std::vector<float> ref(c_count, 0.0f);
+    if (cfg.verify) {
+        if (static_cast<long double>(cfg.M) * cfg.N * cfg.K > 3.0e9L) {
+            throw std::runtime_error("CPU verification reference is intentionally blocked for this very large workload; use --no-verify for performance-only runs");
+        }
+        cpu_gemm(cfg.M, cfg.N, cfg.K, A.data(), B.data(), ref.data());
+    }
+
+    std::vector<__half> Ah, Bh;
+    if (cfg.dtype == "fp16") {
+        Ah.resize(a_count); Bh.resize(b_count);
+        for (size_t i = 0; i < a_count; ++i) Ah[i] = __float2half(A[i]);
+        for (size_t i = 0; i < b_count; ++i) Bh[i] = __float2half(B[i]);
+        if (cfg.verify) {
+            std::fill(ref.begin(), ref.end(), 0.0f);
+            for (int i = 0; i < cfg.M; ++i)
+                for (int k = 0; k < cfg.K; ++k) {
+                    const float a = __half2float(Ah[static_cast<size_t>(i) * cfg.K + k]);
+                    for (int j = 0; j < cfg.N; ++j) ref[static_cast<size_t>(i) * cfg.N + j] += a * __half2float(Bh[static_cast<size_t>(k) * cfg.N + j]);
+                }
+        }
+    }
+
+    std::cout << "CUDA GEMM Performance Engineering Lab\n"
+              << "GPU: " << gpu_name() << " (SM " << gpu_compute_capability() << ")\n"
+              << "CUDA runtime/toolkit: " << cuda_runtime_version_string() << "/" << cuda_toolkit_version_string() << "\n"
+              << "Driver: " << driver_version() << "\n"
+              << "Workload: M=" << cfg.M << " N=" << cfg.N << " K=" << cfg.K << ", dtype=" << cfg.dtype
+              << ", warmup=" << cfg.warmup << ", iterations=" << cfg.iterations << '\n';
+
+    const auto kernels = kernels_for(cfg);
+    BenchmarkResult first{};
+    bool got_success = false;
+    bool hard_error = false;
+    bool correctness_error = false;
+
+    for (const std::string& kernel : kernels) {
+        std::string reason;
+        if (!supported(cfg, kernel, reason)) {
+            BenchmarkResult r = base_result(cfg, kernel);
+            r.status = "UNSUPPORTED";
+            r.verification_status = "NOT_APPLICABLE";
+            r.notes = reason;
+            try { append_experiment(r, cfg); } catch (const std::exception& e) { throw std::runtime_error(std::string("cannot log unsupported configuration: ") + e.what()); }
+            std::cout << std::left << std::setw(16) << kernel << "UNSUPPORTED: " << reason << '\n';
+            continue;
+        }
+
+        try {
+            BenchmarkResult r = benchmark_one(cfg, kernel, A, B, ref, Ah, Bh);
+            append_experiment(r, cfg);
+            std::cout << std::left << std::setw(16) << kernel
+                      << std::right << std::fixed << std::setprecision(4)
+                      << std::setw(12) << r.median_ms
+                      << std::setw(12) << r.p95_ms
+                      << std::setw(12) << r.min_ms
+                      << std::setw(14) << r.gflops
+                      << std::setw(12) << r.h2d_ms
+                      << std::setw(12) << r.d2h_ms
+                      << std::setw(14) << r.end_to_end_ms
+                      << "  " << std::setw(13) << r.verification_status
+                      << "  abs=" << std::scientific << std::setprecision(3) << r.max_abs_error
+                      << " rel=" << r.max_rel_error << '\n' << std::defaultfloat;
+            if (!got_success) { first = r; got_success = true; }
+            if (r.status == "ERROR") {
+                hard_error = true;
+                if (cfg.verify && r.verification_status == "FAIL") correctness_error = true;
+            }
+        } catch (const std::exception& e) {
+            BenchmarkResult r = base_result(cfg, kernel);
+            r.status = "ERROR";
+            r.verification_status = "NOT_VERIFIED";
+            if (std::string(e.what()).find("CUDA error") != std::string::npos) r.cuda_errors = e.what();
+            else r.runtime_errors = e.what();
+            r.notes = "kernel execution failed; no performance claim recorded";
+            append_experiment(r, cfg);
+            std::cerr << std::left << std::setw(16) << kernel << "ERROR: " << e.what() << '\n';
+            hard_error = true;
+        }
+    }
+
+    if (!got_success) throw std::runtime_error("no runnable kernels for requested configuration");
+    if (correctness_error) throw std::runtime_error("one or more verified kernels failed correctness");
+    if (hard_error) throw std::runtime_error("one or more requested kernels failed; see experiment history for ERROR records");
+    return first;
 }

@@ -1,89 +1,92 @@
-# CUDA GEMM Performance Engineering Portfolio
+# CUDA GEMM Performance Engineering Lab
 
-## Project Overview
+A reproducible CUDA GEMM portfolio focused on evidence-backed optimization on the **NVIDIA GeForce RTX 4060 Laptop GPU / SM 8.9** using the requested **Ubuntu 24.04 under WSL2, CUDA 12.0, GCC 13.x** target environment.
 
-This repository is a serious CUDA GEMM performance-engineering portfolio project. It demonstrates the progression of matrix multiplication optimizations from a CPU baseline up through Tensor Cores and cuBLAS.
+## What is implemented
 
-The kernels focus on:
-- Global memory coalescing
-- Shared memory tiling
-- Register tiling
-- Tensor Cores (WMMA)
-- Roofline-style performance reasoning
+CPU reference, naive CUDA, coalesced CUDA, shared-memory tiling (16/32), register tiling (32/64 output tiles), float4 vectorization, warp-shuffle experimental GEMM, WMMA Tensor Core FP16-input/FP32-accumulate GEMM, and cuBLAS FP32/FP16 baselines are included.
 
-## Target Hardware & Environment
+The Tensor Core kernel uses a one-warp-per-16x16-output-tile WMMA mapping and explicitly requires dimensions divisible by 16. The FP16 cuBLAS path uses `cublasGemmEx` with Tensor Core math enabled for an apples-to-apples library comparison.
 
-The expected target environment for this project is:
-- **GPU:** NVIDIA GeForce RTX 4060 Laptop GPU (8 GB VRAM)
-- **Architecture:** Ada Lovelace (Compute Capability 8.9)
-- **CUDA Toolkit:** 12.0.140
-- **Host Compiler:** GCC/G++ 13.3.0
-- **OS:** Ubuntu 24.04 under WSL2 on Windows
+## Evidence policy
 
-### Current Status
+The project never treats source existence as proof of completion. The lifecycle is:
 
-**Note:** The autonomous agent built this repository structure and the implementations. However, the agent is executing inside a serverless container environment (Node.js/React environment on Cloud Run) that lacks an NVIDIA GPU and the CUDA toolkit (`nvcc`). 
+`IMPLEMENTED → BUILT → CORRECTNESS VERIFIED → BENCHMARKED → PROFILED WHERE POSSIBLE → DOCUMENTED`
 
-Therefore, **compilation, testing, verification, benchmarking, and profiling are currently BLOCKED.**
-All performance results and profiling sections are marked as **PENDING** until the code is executed on the intended local hardware.
+No benchmark or profiler numbers are fabricated. Unknown values remain unknown until observed on the target machine.
 
-## Kernel Progression
-
-1. **CPU Baseline (`src/cpu_gemm.cpp`)**
-   - Standard i-j-k loop order.
-   - Cache-friendly i-k-j loop order for reference.
-
-2. **Naive CUDA (`src/naive_cuda.cu`)**
-   - One thread per output element.
-   - Direct global memory access.
-
-3. **Coalesced CUDA (`src/coalesced_cuda.cu`)**
-   - Ensures memory accesses are coalesced within warps.
-
-4. **Shared-Memory Tiled CUDA (`src/shared_mem_cuda.cu`)**
-   - Uses shared memory to cache blocks of A and B.
-   - Supports 16x16 and 32x32 tiles.
-
-5. **Register-Tiled CUDA (`src/register_tiled_cuda.cu`)**
-   - Reduces shared memory accesses by computing a 2x2 tile of the output per thread in registers.
-
-6. **Tensor Core CUDA (`src/tensor_core_cuda.cu`)**
-   - Uses WMMA API for hardware acceleration on Ada Lovelace.
-
-7. **cuBLAS Reference (`src/cublas_gemm.cu`)**
-   - Baseline for peak achievable performance.
-
-## Build Instructions (Local Hardware)
-
-If you have cloned this repository to an environment with the CUDA Toolkit and an NVIDIA GPU:
+## Build
 
 ```bash
-mkdir build && cd build
-cmake ..
-make
-./cuda_gemm_benchmark
+./scripts/build.sh
 ```
 
-## Performance Results
+The CMake build targets **SM 8.9**. The build script captures an environment snapshot before compiling and updates `project_state.json` only after a successful build.
 
-### PENDING MEASUREMENT
-*Due to the lack of an NVIDIA GPU in the execution environment, all performance metrics (latency, GFLOPS, speedup) are pending measurement on the target hardware. No results are fabricated.*
+## Correctness
 
-## Profiling Methodology
+```bash
+./scripts/test_correctness.sh
+```
 
-*Nsight Systems and Nsight Compute usage are pending execution on the target hardware. No profiler outputs have been generated.*
+The suite covers square, odd, rectangular, Tensor Core-supported, and FP16 cuBLAS cases. Verification uses a CPU reference and records both maximum absolute error and maximum relative error with a documented denominator floor.
 
-## Limitations
+## Benchmarking
 
-- **Environment Restriction:** The code cannot be compiled or verified by the agent due to missing `nvcc` and GPU.
-- **Verification Pending:** Numerical correctness verification must be run locally.
-- **Tensor Core Path:** The WMMA implementation requires testing on Compute Capability 8.9 to verify alignment and precision behaviors.
+A single run can be controlled with:
 
+```bash
+./build/cuda_gemm_benchmark \
+  --M 1024 --N 1024 --K 1024 \
+  --kernel register --dtype fp32 \
+  --warmup 10 --iterations 50 --verify \
+  --experiment-name register_1024
+```
 
-## Canonical result-preservation policy
+Useful flags include `--M`, `--N`, `--K`, `--kernel`, `--dtype`, `--warmup`, `--iterations`, `--verify`, `--no-verify`, `--seed`, `--experiment-name`, `--output`, `--parent-experiment-id`, `--baseline-experiment-id`, and `--optimization-description`.
 
-This repository preserves benchmark evidence rather than replacing it. Every benchmark result is appended to `results/experiments.csv` and `results/experiments.jsonl` under a unique experiment ID. Performance-only runs are explicitly recorded as `NOT_VERIFIED`.
+GPU kernel timing uses CUDA events. Kernel-only timing is kept separate from H2D, D2H, and end-to-end timing. GFLOPS is always computed from the same **median kernel latency** that is reported.
 
-The original kernel families are retained, including CPU, naive, coalesced, shared-memory, register-tiled, vectorized, warp, Tensor Core, and cuBLAS implementations. An additional `register64` experimental variant is included for controlled optimization work.
+Run the controlled matrix with:
 
-Official performance history begins with the first clean baseline run of this fresh project. Historical numbers from earlier attempts are not mixed into the official dataset.
+```bash
+./scripts/run_benchmarks.sh
+```
+
+## Result preservation
+
+The official experiment history lives in:
+
+- `results/experiments.csv`
+- `results/experiments.jsonl`
+- `results/raw/EXP-XXXXXX.json`
+
+Every attempted configuration receives a unique experiment ID. Successful measured runs are `PASS`; unsupported configurations are `UNSUPPORTED`; execution failures are `ERROR`; performance-only runs explicitly use `verification_status=NOT_VERIFIED`. Existing history is never truncated or rewritten during normal benchmark operation. The CSV header is schema-checked before append.
+
+Historical performance from previous projects is not imported into the official dataset. The official record starts with the first clean run of this repository on the target hardware.
+
+## Profiling
+
+```bash
+./scripts/run_profile.sh
+```
+
+Nsight Compute output is written under a unique timestamped path in `profiles/`. If WSL2/driver/tool permissions prevent attachment, the script records the exact limitation instead of inventing metrics or failing as though profiling had succeeded.
+
+## Project state
+
+`project_state.json` tracks implementation/build/correctness/benchmark/profiling/documentation status, latest experiment ID, current best verified kernel, and known limitations. `results/summaries/` stores timestamped environment snapshots.
+
+## Repository map
+
+- `src/` — CUDA, cuBLAS, CPU, benchmark and correctness implementations
+- `include/` — public interfaces
+- `scripts/` — build/test/benchmark/profile/environment/plot automation
+- `results/` — append-only experiment history and generated plots
+- `profiles/` — profiler artifacts and documented limitations
+- `docs/` — methodology, optimization log, profiling notes and final report
+
+## Current completion state
+
+This archive contains the engineering implementation and verification infrastructure, but **target RTX 4060 execution is not claimed here** because this development environment has no `nvcc` and no NVIDIA GPU. The repository therefore starts with target-side status pending and contains no fabricated performance numbers.

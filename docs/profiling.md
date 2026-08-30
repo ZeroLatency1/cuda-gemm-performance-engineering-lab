@@ -1,9 +1,15 @@
 # Profiling Methodology
 
-Profiling is intended to be performed using:
-- **Nsight Systems (nsys):** For timeline analysis, kernel launch overhead, and general system behavior.
-- **Nsight Compute (ncu):** For detailed SM utilization, memory throughput, occupancy, and register pressure.
+## Nsight Compute
 
-## Pending Profiling
+Use Nsight Compute to answer a specific kernel hypothesis. Examples include register pressure, memory throughput, occupancy, instruction issue, or whether Tensor Core instructions are present.
 
-*Due to the lack of an NVIDIA GPU in the current environment, no profiler traces have been generated. Once run locally, this document will contain the hypotheses, metrics, observed behaviors, and conclusions for each major kernel.*
+The supplied `scripts/run_profile.sh` captures a register-tiled 2048³ run with a timestamped export path. Replace or extend the command only when a new hypothesis justifies another experiment.
+
+## Nsight Systems
+
+Nsight Systems is optional in this target environment. It is appropriate for system-level timeline questions such as transfer overlap, launch overhead, and synchronization behavior.
+
+## Failure handling
+
+A profiler failure is not converted into a fake success. The profile script stores the timestamp, tool, exact command, exit code or missing-tool condition under `profiles/limitations/`. The project state is marked `LIMITED` rather than claiming profiler coverage.
