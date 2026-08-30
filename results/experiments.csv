@@ -1,0 +1,1 @@
+experiment_id,timestamp,experiment_name,git_commit,GPU,compute_capability,driver,cuda_runtime,kernel,dtype,M,N,K,warmup,iterations,median_ms,p95_ms,min_ms,gflops,verification_status,max_abs_err,max_rel_err,notes

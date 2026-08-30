@@ -1,0 +1,28 @@
+{
+  "project": "CUDA GEMM Performance Engineering Lab",
+  "status": {
+    "implementation": "CLEAN_STARTER_READY",
+    "build": "NOT_YET_VERIFIED_ON_TARGET",
+    "correctness": "NOT_YET_VERIFIED_ON_TARGET",
+    "benchmark": "NOT_YET_VERIFIED_ON_TARGET",
+    "profiling": "AVAILABLE_IF_TOOL_CAN_ATTACH",
+    "documentation": "IN_PROGRESS"
+  },
+  "current_best_kernel": null,
+  "best_verified_result": null,
+  "latest_experiment_id": null,
+  "last_successful_build": null,
+  "last_successful_correctness_run": null,
+  "unsupported_features": [],
+  "known_limitations": [
+    "Nsight tools may be limited by the WSL2 GPU virtualization environment.",
+    "Tensor Core WMMA path requires M, N, and K divisible by 16.",
+    "CPU verification for extremely large GEMMs may be intentionally disabled to avoid impractical reference runtimes."
+  ],
+  "known_regressions": [],
+  "open_investigations": [
+    "Establish clean baseline measurements on the target RTX 4060 Laptop GPU.",
+    "Validate numerical error thresholds against representative FP32 workloads.",
+    "Profile baseline kernels where the installed Nsight tooling can attach."
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "name": "CUDA GEMM Performance Engineering Lab",
+  "description": "Reproducible CUDA GEMM benchmarking and optimization portfolio targeting RTX 4060 Laptop / SM 8.9 with CUDA 12.0.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "CUDA GEMM benchmarking",
+    "append-only experiment history",
+    "correctness verification",
+    "GPU performance engineering"
+  ]
+}

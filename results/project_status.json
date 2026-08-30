@@ -1,0 +1,17 @@
+{
+  "project": "CUDA GEMM Performance Engineering Lab",
+  "status": {
+    "implementation": "CLEAN_STARTER_READY",
+    "build": "NOT_YET_VERIFIED_ON_TARGET",
+    "correctness": "NOT_YET_VERIFIED_ON_TARGET",
+    "benchmark": "NOT_YET_VERIFIED_ON_TARGET",
+    "profiling": "AVAILABLE_IF_TOOL_CAN_ATTACH",
+    "documentation": "IN_PROGRESS"
+  },
+  "notes": "Official results begin with the first clean baseline run. This file replaces the original cloud-environment status artifact so the repository no longer claims the target environment is unavailable.",
+  "known_limitations": [
+    "Nsight tools may be limited by the WSL2 GPU virtualization environment.",
+    "Tensor Core WMMA path requires M, N, and K divisible by 16.",
+    "CPU verification may be impractical for very large GEMMs and can be explicitly disabled with --no-verify."
+  ]
+}
