@@ -1,29 +1,32 @@
 #include "correctness.h"
+
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 CorrectnessMetrics compare_outputs(const std::vector<float>& ref,
                                    const std::vector<float>& got) {
     CorrectnessMetrics m;
     if (ref.size() != got.size() || ref.empty()) return m;
 
-    // Use a floor so relative error does not become meaningless near zero.
+    // Relative error is max(abs(got-ref) / max(abs(ref), floor)).
+    // The floor keeps tiny/near-zero reference values from dominating the metric.
     constexpr double REL_FLOOR = 1e-3;
     constexpr double ABS_TOL = 1e-3;
     constexpr double REL_TOL = 1e-2;
 
+    bool all_ok = true;
     for (size_t i = 0; i < ref.size(); ++i) {
-        const double value = static_cast<double>(got[i]);
-        if (std::isnan(value)) { m.saw_nan = true; return m; }
-        if (std::isinf(value)) { m.saw_inf = true; return m; }
-        const double abs_err = std::abs(value - static_cast<double>(ref[i]));
-        const double denom = std::max(std::abs(static_cast<double>(ref[i])), REL_FLOOR);
-        const double rel_err = abs_err / denom;
+        const double r = static_cast<double>(ref[i]);
+        const double t = static_cast<double>(got[i]);
+        if (std::isnan(t)) { m.saw_nan = true; return m; }
+        if (std::isinf(t)) { m.saw_inf = true; return m; }
+
+        const double abs_err = std::abs(t - r);
+        const double rel_err = abs_err / std::max(std::abs(r), REL_FLOOR);
         m.max_abs = std::max(m.max_abs, abs_err);
         m.max_rel = std::max(m.max_rel, rel_err);
+        if (abs_err > ABS_TOL && rel_err > REL_TOL) all_ok = false;
     }
-
-    m.pass = (m.max_abs <= ABS_TOL) || (m.max_rel <= REL_TOL);
+    m.pass = all_ok;
     return m;
 }

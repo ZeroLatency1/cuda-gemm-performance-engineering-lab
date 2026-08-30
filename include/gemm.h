@@ -18,3 +18,4 @@ void vectorized_cuda_gemm(int M, int N, int K, const float* d_A, const float* d_
 void warp_shuffle_cuda_gemm(int M, int N, int K, const float* d_A, const float* d_B, float* d_C);
 void tensor_core_cuda_gemm(int M, int N, int K, const __half* d_A, const __half* d_B, float* d_C);
 void cublas_gemm(int M, int N, int K, const float* d_A, const float* d_B, float* d_C);
+void cublas_gemm_half(int M, int N, int K, const __half* d_A, const __half* d_B, float* d_C);
