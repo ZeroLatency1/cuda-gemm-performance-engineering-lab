@@ -16,6 +16,7 @@
 #include <iostream>
 #include <limits>
 #include <random>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -111,7 +112,9 @@ unsigned long long max_experiment_id(const fs::path& results_dir) {
         if (ec || !entry.is_regular_file()) continue;
         const std::string name = entry.path().filename().string();
         if (name.rfind("EXP-", 0) != 0) continue;
-        try { max_id = std::max(max_id, std::stoull(name.substr(4, 6))); } catch (...) {}
+        const size_t dot = name.find('.', 4);
+        const std::string digits = name.substr(4, dot == std::string::npos ? std::string::npos : dot - 4);
+        try { max_id = std::max(max_id, std::stoull(digits)); } catch (...) {}
     }
     return max_id;
 }
@@ -148,9 +151,10 @@ void append_csv_record(const fs::path& csv, const BenchmarkResult& r) {
         << csv_escape(r.compute_capability) << ',' << csv_escape(r.driver) << ',' << csv_escape(r.cuda_runtime) << ','
         << csv_escape(r.cuda_toolkit) << ',' << csv_escape(r.compiler) << ',' << csv_escape(r.cmake_version) << ','
         << csv_escape(r.kernel) << ',' << csv_escape(r.kernel_variant) << ',' << csv_escape(r.dtype) << ','
-        << r.M << ',' << r.N << ',' << r.K << ',' << r.warmup << ',' << r.iterations << ','
+        << r.M << ',' << r.N << ',' << r.K << ',' << r.warmup << ',' << r.iterations << ',' << r.seed << ','
         << num(r.median_ms) << ',' << num(r.p95_ms) << ',' << num(r.min_ms) << ',' << num(r.gflops) << ','
         << num(r.h2d_ms) << ',' << num(r.d2h_ms) << ',' << num(r.end_to_end_ms) << ',' << num(r.end_to_end_gflops) << ','
+        << num(r.latency_delta_ms) << ',' << num(r.latency_delta_pct) << ',' << num(r.throughput_delta_gflops) << ',' << num(r.throughput_delta_pct) << ','
         << csv_escape(r.verification_status) << ',' << num(r.max_abs_error) << ',' << num(r.max_rel_error) << ','
         << csv_escape(r.status) << ',' << csv_escape(r.cuda_errors) << ',' << csv_escape(r.runtime_errors) << ','
         << csv_escape(r.environment_warnings) << ',' << csv_escape(r.parent_experiment_id) << ','
@@ -179,10 +183,12 @@ std::string json_record(const BenchmarkResult& r) {
       << "\"kernel_variant\":\"" << json_escape(r.kernel_variant) << "\"," 
       << "\"dtype\":\"" << json_escape(r.dtype) << "\"," 
       << "\"M\":" << r.M << ",\"N\":" << r.N << ",\"K\":" << r.K
-      << ",\"warmup\":" << r.warmup << ",\"iterations\":" << r.iterations
+      << ",\"warmup\":" << r.warmup << ",\"iterations\":" << r.iterations << ",\"seed\":" << r.seed
       << ",\"median_ms\":" << num(r.median_ms) << ",\"p95_ms\":" << num(r.p95_ms) << ",\"min_ms\":" << num(r.min_ms)
       << ",\"gflops\":" << num(r.gflops) << ",\"h2d_ms\":" << num(r.h2d_ms) << ",\"d2h_ms\":" << num(r.d2h_ms)
       << ",\"end_to_end_ms\":" << num(r.end_to_end_ms) << ",\"end_to_end_gflops\":" << num(r.end_to_end_gflops)
+      << ",\"latency_delta_ms\":" << num(r.latency_delta_ms) << ",\"latency_delta_pct\":" << num(r.latency_delta_pct)
+      << ",\"throughput_delta_gflops\":" << num(r.throughput_delta_gflops) << ",\"throughput_delta_pct\":" << num(r.throughput_delta_pct)
       << ",\"verification_status\":\"" << json_escape(r.verification_status) << "\""
       << ",\"max_abs_error\":" << num(r.max_abs_error) << ",\"max_rel_error\":" << num(r.max_rel_error)
       << ",\"status\":\"" << json_escape(r.status) << "\""
@@ -223,7 +229,7 @@ BenchmarkResult base_result(const BenchmarkConfig& cfg, const std::string& kerne
     else r.kernel_variant = kernel;
     r.dtype = cfg.dtype;
     r.M = cfg.M; r.N = cfg.N; r.K = cfg.K;
-    r.warmup = cfg.warmup; r.iterations = cfg.iterations;
+    r.warmup = cfg.warmup; r.iterations = cfg.iterations; r.seed = cfg.seed;
     r.parent_experiment_id = cfg.parent_experiment_id;
     r.baseline_experiment_id = cfg.baseline_experiment_id;
     r.optimization_description = cfg.optimization_description;
@@ -429,12 +435,58 @@ BenchmarkResult benchmark_one(const BenchmarkConfig& cfg, const std::string& ker
 
 } // namespace
 
+
+struct BaselineRecord {
+    bool found = false;
+    std::string dtype;
+    int M = 0, N = 0, K = 0;
+    double median_ms = 0.0;
+    double gflops = 0.0;
+};
+
+BaselineRecord find_baseline_record(const fs::path& jsonl, const std::string& id) {
+    BaselineRecord out;
+    if (id.empty()) return out;
+    std::ifstream in(jsonl);
+    std::string line;
+    const std::string needle = "\"experiment_id\":\"" + json_escape(id) + "\"";
+    while (std::getline(in, line)) {
+        if (line.find(needle) == std::string::npos) continue;
+        std::smatch m;
+        if (std::regex_search(line, m, std::regex("\\\"dtype\\\":\\\"([^\\\"]+)\\\""))) out.dtype = m[1].str();
+        if (std::regex_search(line, m, std::regex("\\\"M\\\":([0-9]+)"))) out.M = std::stoi(m[1].str());
+        if (std::regex_search(line, m, std::regex("\\\"N\\\":([0-9]+)"))) out.N = std::stoi(m[1].str());
+        if (std::regex_search(line, m, std::regex("\\\"K\\\":([0-9]+)"))) out.K = std::stoi(m[1].str());
+        if (std::regex_search(line, m, std::regex("\\\"median_ms\\\":([-+0-9.eE]+)"))) out.median_ms = std::stod(m[1].str());
+        if (std::regex_search(line, m, std::regex("\\\"gflops\\\":([-+0-9.eE]+)"))) out.gflops = std::stod(m[1].str());
+        out.found = true;
+        break;
+    }
+    return out;
+}
+
 void append_experiment(BenchmarkResult result, const BenchmarkConfig& cfg) {
     const fs::path dir = project_results_dir(cfg);
     fs::create_directories(dir / "raw");
     fs::create_directories(dir / "summaries");
     write_header_if_needed(dir / "experiments.csv");
     if (result.experiment_id.empty()) result.experiment_id = allocate_experiment_id(dir);
+    const fs::path raw = dir / "raw" / (result.experiment_id + ".json");
+    if (fs::exists(raw)) throw std::runtime_error("refusing to overwrite existing raw experiment file: " + raw.string());
+
+    if (!result.baseline_experiment_id.empty()) {
+        const BaselineRecord b = find_baseline_record(dir / "experiments.jsonl", result.baseline_experiment_id);
+        if (!b.found) {
+            result.notes += (result.notes.empty() ? "" : "; ") + std::string("baseline experiment not found; deltas unavailable");
+        } else if (b.dtype != result.dtype || b.M != result.M || b.N != result.N || b.K != result.K) {
+            result.notes += (result.notes.empty() ? "" : "; ") + std::string("baseline dimensions/dtype do not match; deltas unavailable");
+        } else if (b.median_ms > 0.0 && b.gflops > 0.0) {
+            result.latency_delta_ms = result.median_ms - b.median_ms;
+            result.latency_delta_pct = (result.latency_delta_ms / b.median_ms) * 100.0;
+            result.throughput_delta_gflops = result.gflops - b.gflops;
+            result.throughput_delta_pct = (result.throughput_delta_gflops / b.gflops) * 100.0;
+        }
+    }
 
     const std::string json = json_record(result);
     append_csv_record(dir / "experiments.csv", result);
@@ -444,8 +496,6 @@ void append_experiment(BenchmarkResult result, const BenchmarkConfig& cfg) {
         out << json << '\n';
     }
     {
-        const fs::path raw = dir / "raw" / (result.experiment_id + ".json");
-        if (fs::exists(raw)) throw std::runtime_error("refusing to overwrite existing raw experiment file: " + raw.string());
         std::ofstream out(raw);
         if (!out) throw std::runtime_error("cannot create raw experiment file: " + raw.string());
         out << json << '\n';

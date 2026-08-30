@@ -2,9 +2,9 @@
 
 This file is intentionally evidence-driven. A row is only added after the implementation is built and measured on the target environment.
 
-| Experiment ID | Hypothesis | Change | Baseline | Median latency | GFLOPS | Delta | Verification | Decision |
+| Experiment ID | Hypothesis | Change | Baseline | Median latency | GFLOPS | Latency Δ | Throughput Δ | Verification | Decision |
 |---|---|---|---|---:|---:|---|---|---|
-| PENDING | No target-side measurement has been executed in the current environment. | — | — | — | — | — | — | PENDING |
+| PENDING | No target-side measurement has been executed in the current environment. | — | — | — | — | — | — | — | PENDING |
 
 ## Recording rule
 

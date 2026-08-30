@@ -74,6 +74,14 @@ Historical performance from previous projects is not imported into the official 
 
 Nsight Compute output is written under a unique timestamped path in `profiles/`. If WSL2/driver/tool permissions prevent attachment, the script records the exact limitation instead of inventing metrics or failing as though profiling had succeeded.
 
+## Static repository checks
+
+```bash
+./scripts/test_static.sh
+```
+
+These checks validate the experiment schema, CSV/JSONL alignment, SM 8.9 targeting, duplicate-result-type protection, Python syntax, and shell syntax. They do not substitute for target GPU correctness or performance execution.
+
 ## Project state
 
 `project_state.json` tracks implementation/build/correctness/benchmark/profiling/documentation status, latest experiment ID, current best verified kernel, and known limitations. `results/summaries/` stores timestamped environment snapshots.

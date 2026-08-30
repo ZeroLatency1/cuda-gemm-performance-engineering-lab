@@ -15,7 +15,11 @@ public:
         if (rc != CUBLAS_STATUS_SUCCESS) throw std::runtime_error("cublasCreate failed with status " + std::to_string(static_cast<int>(rc)));
         if (tensor_op) {
             const cublasStatus_t mode_rc = cublasSetMathMode(handle_, CUBLAS_TENSOR_OP_MATH);
-            if (mode_rc != CUBLAS_STATUS_SUCCESS) throw std::runtime_error("cublasSetMathMode(TENSOR_OP) failed with status " + std::to_string(static_cast<int>(mode_rc)));
+            if (mode_rc != CUBLAS_STATUS_SUCCESS) {
+                cublasDestroy(handle_);
+                handle_ = nullptr;
+                throw std::runtime_error("cublasSetMathMode(TENSOR_OP) failed with status " + std::to_string(static_cast<int>(mode_rc)));
+            }
         }
     }
     ~CublasContext() {

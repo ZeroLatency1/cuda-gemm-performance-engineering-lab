@@ -1,5 +1,6 @@
 #pragma once
 
+#include <limits>
 #include <string>
 
 struct BenchmarkConfig {
@@ -43,6 +44,7 @@ struct BenchmarkResult {
     int K = 0;
     int warmup = 0;
     int iterations = 0;
+    int seed = 0;
     double median_ms = 0.0;
     double p95_ms = 0.0;
     double min_ms = 0.0;
@@ -51,6 +53,10 @@ struct BenchmarkResult {
     double d2h_ms = 0.0;
     double end_to_end_ms = 0.0;
     double end_to_end_gflops = 0.0;
+    double latency_delta_ms = std::numeric_limits<double>::quiet_NaN();
+    double latency_delta_pct = std::numeric_limits<double>::quiet_NaN();
+    double throughput_delta_gflops = std::numeric_limits<double>::quiet_NaN();
+    double throughput_delta_pct = std::numeric_limits<double>::quiet_NaN();
     std::string verification_status = "NOT_VERIFIED";
     double max_abs_error = 0.0;
     double max_rel_error = 0.0;

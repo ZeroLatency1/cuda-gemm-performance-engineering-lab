@@ -3,7 +3,11 @@ import csv
 from collections import defaultdict
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    print("matplotlib is not installed; benchmark data is preserved and plot generation is skipped.")
+    raise SystemExit(0)
 
 ROOT = Path(__file__).resolve().parents[1]
 CSV = ROOT / 'results' / 'experiments.csv'

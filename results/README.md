@@ -1,9 +1,11 @@
-# Results
+# Experiment History
 
-`experiments.csv` and `experiments.jsonl` are append-only experiment logs.
+`experiments.csv` and `experiments.jsonl` are the official append-only histories. Each attempted configuration receives a unique `EXP-XXXXXX` ID. `results/raw/` stores an immutable JSON copy for each experiment.
 
-Every executable benchmark run must create a unique experiment ID (`EXP-XXXXXX`).
+Statuses:
 
-Do not replace these files with a fresh benchmark output. Historical evidence is part of the project deliverable.
+- `PASS`: execution completed; `verification_status` separately says whether numerical verification passed.
+- `UNSUPPORTED`: configuration is not supported by that kernel path and is explicitly recorded.
+- `ERROR`: execution or validation failed; performance numbers must not be interpreted as successful evidence.
 
-`raw/` and `summaries/` are reserved for per-run artifacts and generated analyses.
+`verification_status=NOT_VERIFIED` means a performance-only run used `--no-verify`. It is not a correctness failure.

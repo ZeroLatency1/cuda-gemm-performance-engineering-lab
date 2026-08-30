@@ -43,3 +43,17 @@ Comparisons use the same input seed, dimensions, warmups, iteration count, dtype
 Every attempted configuration gets a permanent `EXP-XXXXXX` identifier. Records are appended to both `results/experiments.csv` and `results/experiments.jsonl`; a unique raw JSON artifact is also stored. The CSV schema is checked before append so incompatible history is not silently mixed.
 
 `NOT_VERIFIED` means performance was measured with verification disabled. It is not the same as `FAIL`.
+
+## Optimization deltas
+
+When `--baseline-experiment-id` identifies an existing record with matching dtype and dimensions, the logger calculates:
+
+`latency_delta_ms = new_median_ms - baseline_median_ms`
+
+`latency_delta_pct = latency_delta_ms / baseline_median_ms × 100`
+
+`throughput_delta_gflops = new_gflops - baseline_gflops`
+
+`throughput_delta_pct = throughput_delta_gflops / baseline_gflops × 100`
+
+If the baseline cannot be found or does not match the workload/dtype, deltas remain unavailable rather than comparing incompatible experiments.
