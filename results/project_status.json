@@ -10,7 +10,7 @@
     "documentation": "PASS"
   },
   "state_schema_version": 2,
-  "latest_experiment_id": "EXP-000278",
+  "latest_experiment_id": "EXP-000352",
   "current_best_kernel": "cublas",
   "best_verified_result": {
     "experiment_id": "EXP-000022",
