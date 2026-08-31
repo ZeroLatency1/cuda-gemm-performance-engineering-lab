@@ -16,4 +16,7 @@ The NVIDIA GeForce RTX 4060 Laptop GPU is based on the Ada Lovelace architecture
 - **SIMT:** Single Instruction, Multiple Threads. 32 threads (a warp) execute the same instruction.
 - **Occupancy:** The ratio of active warps to the maximum possible warps. Higher occupancy can help hide latency, though maximum occupancy is not always required for peak performance if latency is hidden via instruction-level parallelism or sufficient memory bandwidth.
 
-*(Note: Detailed empirical observations on the RTX 4060 for this specific project are pending execution).*
+
+## Measured project observations
+
+The final profiles on the RTX 4060 Laptop GPU (SM 8.9) directly measured register pressure and occupancy differences between the register-tiled variants and recorded HMMA Tensor Core execution for the custom WMMA path. These measurements are retained as project-specific observations rather than substitutes for architectural specifications.

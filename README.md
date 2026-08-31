@@ -99,4 +99,6 @@ These checks validate the experiment schema, CSV/JSONL alignment, SM 8.9 targeti
 
 ## Current completion state
 
-This archive contains the engineering implementation and verification infrastructure, but **target RTX 4060 execution is not claimed here** because this development environment has no `nvcc` and no NVIDIA GPU. The repository therefore starts with target-side status pending and contains no fabricated performance numbers.
+The finalized dataset contains **589 recorded experiments** and **589 immutable raw experiment artifacts** collected on the target **NVIDIA GeForce RTX 4060 Laptop GPU (SM 8.9)**. Correctness, benchmark, profiling, and documentation gates are recorded as `PASS`.
+
+The project preserves both successful and negative optimization results. Performance-only benchmark records use `verification_status=NOT_VERIFIED`; numerically checked runs explicitly record their verification status and error metrics. Nsight profiling artifacts are diagnostic and are not treated as timing evidence for performance claims.

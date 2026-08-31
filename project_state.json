@@ -30,7 +30,7 @@
     "min_ms": 0.233472004533,
     "gflops": 8011.08537743
   },
-  "latest_experiment_id": "EXP-000588",
+  "latest_experiment_id": "EXP-000589",
   "last_successful_build": "2026-08-31T09:24:34.566419Z",
   "last_successful_correctness_run": "2026-08-31T08:20:33.975628Z",
   "unsupported_features": [],
@@ -39,15 +39,11 @@
     "WMMA Tensor Core path requires M, N, and K divisible by 16.",
     "Vectorized float4 path requires N divisible by 4.",
     "CPU reference verification is intentionally blocked for extremely large FLOP counts; use --no-verify for those performance runs.",
-    "Nsight Compute/System availability is environment-dependent under WSL2. Any attach or permission failure is recorded rather than fabricated."
+    "End-to-end timing is a separate measured interval and is not expected to equal the arithmetic sum of independently sampled H2D, kernel, and D2H medians.",
+    "Nsight Compute timing is diagnostic only because instrumentation materially perturbs execution; profiler binary availability remains environment-dependent under WSL2."
   ],
   "known_regressions": [],
-  "open_investigations": [
-    "Measure the clean baseline and full workload matrix on the target RTX 4060 Laptop GPU.",
-    "Profile winning and regressing kernels with Nsight Compute where attachment is possible.",
-    "Use measured register usage, occupancy, memory throughput, and instruction metrics to accept or reject targeted variants.",
-    "Populate optimization_log.md and final_report.md only from recorded experiments."
-  ],
+  "open_investigations": [],
   "state_schema_version": 2,
   "best_verified_by_workload": {
     "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp16|1024|1024|1024|42": {
@@ -168,5 +164,5 @@
       "gflops": 5461.33314016
     }
   },
-  "last_successful_profile": "2026-08-31T09:39:50.432567Z"
+  "last_successful_profile": "2026-08-31T09:45:54Z"
 }
