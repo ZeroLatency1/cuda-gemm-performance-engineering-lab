@@ -18,20 +18,20 @@
   },
   "current_best_kernel": "cublas",
   "best_verified_result": {
-    "experiment_id": "EXP-000022",
+    "experiment_id": "EXP-000361",
     "kernel": "cublas",
     "kernel_variant": "cublas_sgemm",
     "dtype": "fp32",
-    "M": 256,
-    "N": 256,
-    "K": 256,
-    "median_ms": 0.0204799994826,
-    "p95_ms": 0.0696832012385,
-    "min_ms": 0.01331199985,
-    "gflops": 1638.40004139
+    "M": 1024,
+    "N": 1024,
+    "K": 1024,
+    "median_ms": 0.268064007163,
+    "p95_ms": 0.29700640589,
+    "min_ms": 0.233472004533,
+    "gflops": 8011.08537743
   },
-  "latest_experiment_id": "EXP-000352",
-  "last_successful_build": "2026-08-31T08:49:01.167516Z",
+  "latest_experiment_id": "EXP-000588",
+  "last_successful_build": "2026-08-31T09:24:34.566419Z",
   "last_successful_correctness_run": "2026-08-31T08:20:33.975628Z",
   "unsupported_features": [],
   "known_limitations": [
@@ -77,17 +77,17 @@
       "gflops": 410.241007491
     },
     "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|1024|1024|1024|42": {
-      "experiment_id": "EXP-000040",
+      "experiment_id": "EXP-000361",
       "kernel": "cublas",
       "kernel_variant": "cublas_sgemm",
       "dtype": "fp32",
       "M": 1024,
       "N": 1024,
       "K": 1024,
-      "median_ms": 0.298576012254,
-      "p95_ms": 0.361947202682,
-      "min_ms": 0.230399996042,
-      "gflops": 7192.41854625
+      "median_ms": 0.268064007163,
+      "p95_ms": 0.29700640589,
+      "min_ms": 0.233472004533,
+      "gflops": 8011.08537743
     },
     "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|127|131|125|42": {
       "experiment_id": "EXP-000071",
@@ -168,5 +168,5 @@
       "gflops": 5461.33314016
     }
   },
-  "last_successful_profile": "2026-08-31T08:38:29.243684Z"
+  "last_successful_profile": "2026-08-31T09:39:50.432567Z"
 }

@@ -1,0 +1,13 @@
+timestamp=2026-08-31T09:24:11Z
+hostname=LAPTOP-20FJA14N
+os=Ubuntu 24.04.4 LTS
+wsl_status=WSL2_GPU_DEVICE_PRESENT
+gpu=NVIDIA GeForce RTX 4060 Laptop GPU
+gpu_uuid=GPU-0902d391-eeed-82e8-1331-3d29c15d036c
+driver=595.97
+nvcc=Build cuda_12.0.r12.0/compiler.32267302_0
+g++=g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0
+cmake=cmake version 3.28.3
+ncu_bin=/usr/local/NVIDIA-Nsight-Compute/target/linux-desktop-glibc_2_11_3-x64/ncu
+ncu=Version 2026.2.1.0 (build 38286902) (public-release)
+nsys=unavailable

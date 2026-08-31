@@ -1,0 +1,22 @@
+{
+  "profiled_experiment_id": "EXP-000588",
+  "timestamp": "2026-08-31T09:39:50.210889Z",
+  "profiler": "nsight-compute",
+  "profiler_version": "Version 2026.2.1.0 (build 38286902) (public-release)",
+  "kernel": "tensorcore",
+  "dtype": "fp16",
+  "M": 2048,
+  "N": 2048,
+  "K": 2048,
+  "warmup": 0,
+  "iterations": 1,
+  "section_set": "basic",
+  "launch_count": 1,
+  "parent_experiment_id": "",
+  "baseline_experiment_id": "",
+  "optimization_description": "",
+  "report": "profiles/EXP-000588/profile.ncu-rep",
+  "command": "/usr/local/NVIDIA-Nsight-Compute/target/linux-desktop-glibc_2_11_3-x64/ncu --set basic --launch-count 1 -o profiles/.pending_20260831T093945Z_17128/profile ./build/cuda_gemm_benchmark --M 2048 --N 2048 --K 2048 --kernel tensorcore --dtype fp16 --warmup 0 --iterations 1 --no-verify --experiment-name profile_tensorcore_2048x2048x2048_20260831T093945Z ",
+  "performance_claim_eligible": false,
+  "notes": "Nsight Compute instrumentation materially perturbs benchmark timing; use this artifact for kernel diagnosis, not performance comparisons."
+}
