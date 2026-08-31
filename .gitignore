@@ -12,3 +12,10 @@ dist/
 profiles/**/*.ncu-rep
 profiles/**/*.qdrep
 profiles/**/*.sqlite
+profiles/**/*.log
+
+# Runtime lock created by the append-only experiment writer.
+results/.experiment_history.lock
+profiles/.pending_*
+__pycache__/
+*.pyc

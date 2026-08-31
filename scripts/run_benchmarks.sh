@@ -21,6 +21,7 @@ EOF
 "$BIN" --M 2048 --N 2048 --K 2048 --kernel tensorcore --dtype fp16 --warmup 10 --iterations 50 --no-verify --experiment-name tensorcore_fp16_2048
 "$BIN" --M 2048 --N 2048 --K 2048 --kernel cublas --dtype fp16 --warmup 10 --iterations 50 --no-verify --experiment-name cublas_fp16_2048
 
+python3 scripts/validate_results.py
 python3 scripts/update_project_state.py --benchmark PASS
 python3 scripts/generate_plots.py
 printf 'Benchmark suite PASS. Every result was appended; historical evidence was preserved.\n'

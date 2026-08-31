@@ -83,18 +83,20 @@ std::string gpu_name() {
 }
 
 std::string gpu_uuid() {
-#if CUDART_VERSION >= 10000
-    cudaUUID_t id{};
+    cudaDeviceProp prop{};
     int device = 0;
+
     if (cudaGetDevice(&device) != cudaSuccess) return "UNKNOWN";
-    if (cudaDeviceGetUuid(&id, device) != cudaSuccess) return "UNKNOWN";
+    if (cudaGetDeviceProperties(&prop, device) != cudaSuccess) return "UNKNOWN";
+
     std::ostringstream out;
     out << "GPU-" << std::hex << std::setfill('0');
-    for (unsigned char c : id.bytes) out << std::setw(2) << static_cast<unsigned>(c);
+
+    for (unsigned char c : prop.uuid.bytes) {
+        out << std::setw(2) << static_cast<unsigned>(c);
+    }
+
     return out.str();
-#else
-    return "UNSUPPORTED";
-#endif
 }
 
 std::string gpu_compute_capability() {
@@ -106,9 +108,18 @@ std::string gpu_compute_capability() {
 }
 
 std::string driver_version() {
+    const std::string nvidia_smi =
+        command_output("nvidia-smi --query-gpu=driver_version --format=csv,noheader,nounits 2>/dev/null");
+
+    if (nvidia_smi != "UNKNOWN" && !nvidia_smi.empty()) {
+        return first_line(nvidia_smi);
+    }
+
     int version = 0;
     if (cudaDriverGetVersion(&version) != cudaSuccess) return "UNKNOWN";
-    return std::to_string(version / 1000) + "." + std::to_string((version % 1000) / 10);
+
+    return std::to_string(version / 1000) + "." +
+           std::to_string((version % 1000) / 10);
 }
 
 std::string cuda_runtime_version_string() {
@@ -122,11 +133,14 @@ std::string cuda_toolkit_version_string() {
 }
 
 std::string host_compiler_version_string() {
-#if defined(__GNUC__)
-    return std::to_string(__GNUC__) + "." + std::to_string(__GNUC_MINOR__) + "." + std::to_string(__GNUC_PATCHLEVEL__);
-#else
+    const std::string version =
+        command_output("gcc -dumpfullversion -dumpversion 2>/dev/null");
+
+    if (version != "UNKNOWN" && !version.empty()) {
+        return first_line(version);
+    }
+
     return "UNKNOWN";
-#endif
 }
 
 std::string cmake_version_string() {

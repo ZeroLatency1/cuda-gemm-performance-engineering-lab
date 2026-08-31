@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import csv
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,11 +33,24 @@ jsonl = ROOT / 'results' / 'experiments.jsonl'
 json_ids = []
 if jsonl.exists():
     for line in jsonl.read_text(encoding='utf-8').splitlines():
+        if not line.strip():
+            continue
         obj = json.loads(line)
         assert set(EXPECTED_HEADER).issubset(obj.keys())
         json_ids.append(obj['experiment_id'])
 assert json_ids == ids, 'CSV and JSONL experiment histories disagree'
 
+raw_dir = ROOT / 'results' / 'raw'
+raw_ids = []
+if raw_dir.exists():
+    for path in sorted(raw_dir.glob('EXP-*.json')):
+        obj = json.loads(path.read_text(encoding='utf-8'))
+        assert obj['experiment_id'] == path.stem, f'{path.name} experiment_id mismatch'
+        raw_ids.append(obj['experiment_id'])
+assert raw_ids == ids, 'raw experiment artifacts disagree with indexed history'
+
 assert 'set(CMAKE_CUDA_ARCHITECTURES 89' in (ROOT / 'CMakeLists.txt').read_text()
 assert (ROOT / 'src' / 'benchmark.cu').read_text().count('struct BenchmarkResult') == 0
+
+subprocess.run([sys.executable, str(ROOT / 'scripts' / 'validate_results.py')], check=True)
 print('Repository integrity PASS')

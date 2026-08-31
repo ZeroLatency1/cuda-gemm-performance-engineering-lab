@@ -40,13 +40,13 @@ Comparisons use the same input seed, dimensions, warmups, iteration count, dtype
 
 ## Result preservation
 
-Every attempted configuration gets a permanent `EXP-XXXXXX` identifier. Records are appended to both `results/experiments.csv` and `results/experiments.jsonl`; a unique raw JSON artifact is also stored. The CSV schema is checked before append so incompatible history is not silently mixed.
+Every attempted configuration gets a permanent `EXP-XXXXXX` identifier. Records are appended to both `results/experiments.csv` and `results/experiments.jsonl`; a unique raw JSON artifact is also stored. On Linux/WSL, experiment allocation and history writes are serialized with an advisory file lock so concurrent benchmark processes cannot allocate the same ID. The CSV schema is checked before append so incompatible history is not silently mixed.
 
 `NOT_VERIFIED` means performance was measured with verification disabled. It is not the same as `FAIL`.
 
 ## Optimization deltas
 
-When `--baseline-experiment-id` identifies an existing record with matching dtype and dimensions, the logger calculates:
+When `--baseline-experiment-id` identifies an existing record with matching GPU identity, compute capability, CUDA runtime/toolkit, dtype, dimensions, seed, warmup count, and iteration count, the logger calculates:
 
 `latency_delta_ms = new_median_ms - baseline_median_ms`
 

@@ -7,6 +7,7 @@
 #include <cuda_runtime.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -21,6 +22,12 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#if defined(__linux__)
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -42,6 +49,43 @@ fs::path project_results_dir(const BenchmarkConfig& cfg) {
     }
     return project_root() / "results";
 }
+
+class ExperimentFileLock {
+public:
+    explicit ExperimentFileLock(const fs::path& results_dir) {
+#if defined(__linux__)
+        fs::create_directories(results_dir);
+        const fs::path lock_path = results_dir / ".experiment_history.lock";
+        fd_ = ::open(lock_path.c_str(), O_CREAT | O_RDWR, 0664);
+        if (fd_ < 0) throw std::runtime_error("cannot open experiment history lock: " + lock_path.string());
+        if (::flock(fd_, LOCK_EX) != 0) {
+            const int saved_errno = errno;
+            ::close(fd_);
+            fd_ = -1;
+            throw std::runtime_error("cannot lock experiment history: errno=" + std::to_string(saved_errno));
+        }
+#else
+        (void)results_dir;
+#endif
+    }
+
+    ExperimentFileLock(const ExperimentFileLock&) = delete;
+    ExperimentFileLock& operator=(const ExperimentFileLock&) = delete;
+
+    ~ExperimentFileLock() {
+#if defined(__linux__)
+        if (fd_ >= 0) {
+            ::flock(fd_, LOCK_UN);
+            ::close(fd_);
+        }
+#endif
+    }
+
+private:
+#if defined(__linux__)
+    int fd_ = -1;
+#endif
+};
 
 std::vector<float> make_input(size_t n, uint32_t seed) {
     std::vector<float> v(n);
@@ -127,7 +171,7 @@ std::string allocate_experiment_id(const fs::path& results_dir) {
 
 void write_header_if_needed(const fs::path& csv) {
     constexpr const char* header =
-        "experiment_id,timestamp,hostname,os,wsl_status,experiment_name,git_commit,gpu,gpu_uuid,compute_capability,driver,cuda_runtime,cuda_toolkit,compiler,cmake_version,kernel,kernel_variant,dtype,M,N,K,warmup,iterations,median_ms,p95_ms,min_ms,gflops,h2d_ms,d2h_ms,end_to_end_ms,end_to_end_gflops,verification_status,max_abs_error,max_rel_error,status,cuda_errors,runtime_errors,environment_warnings,parent_experiment_id,baseline_experiment_id,optimization_description,notes";
+        "experiment_id,timestamp,hostname,os,wsl_status,experiment_name,git_commit,gpu,gpu_uuid,compute_capability,driver,cuda_runtime,cuda_toolkit,compiler,cmake_version,kernel,kernel_variant,dtype,M,N,K,warmup,iterations,seed,median_ms,p95_ms,min_ms,gflops,h2d_ms,d2h_ms,end_to_end_ms,end_to_end_gflops,latency_delta_ms,latency_delta_pct,throughput_delta_gflops,throughput_delta_pct,verification_status,max_abs_error,max_rel_error,status,cuda_errors,runtime_errors,environment_warnings,parent_experiment_id,baseline_experiment_id,optimization_description,notes";
     if (!fs::exists(csv) || fs::file_size(csv) == 0) {
         std::ofstream out(csv, std::ios::app);
         if (!out) throw std::runtime_error("cannot open experiment CSV for append: " + csv.string());
@@ -438,8 +482,14 @@ BenchmarkResult benchmark_one(const BenchmarkConfig& cfg, const std::string& ker
 
 struct BaselineRecord {
     bool found = false;
+    std::string gpu;
+    std::string gpu_uuid;
+    std::string compute_capability;
+    std::string cuda_runtime;
+    std::string cuda_toolkit;
     std::string dtype;
     int M = 0, N = 0, K = 0;
+    int warmup = 0, iterations = 0, seed = 0;
     double median_ms = 0.0;
     double gflops = 0.0;
 };
@@ -453,12 +503,25 @@ BaselineRecord find_baseline_record(const fs::path& jsonl, const std::string& id
     while (std::getline(in, line)) {
         if (line.find(needle) == std::string::npos) continue;
         std::smatch m;
-        if (std::regex_search(line, m, std::regex("\\\"dtype\\\":\\\"([^\\\"]+)\\\""))) out.dtype = m[1].str();
-        if (std::regex_search(line, m, std::regex("\\\"M\\\":([0-9]+)"))) out.M = std::stoi(m[1].str());
-        if (std::regex_search(line, m, std::regex("\\\"N\\\":([0-9]+)"))) out.N = std::stoi(m[1].str());
-        if (std::regex_search(line, m, std::regex("\\\"K\\\":([0-9]+)"))) out.K = std::stoi(m[1].str());
-        if (std::regex_search(line, m, std::regex("\\\"median_ms\\\":([-+0-9.eE]+)"))) out.median_ms = std::stod(m[1].str());
-        if (std::regex_search(line, m, std::regex("\\\"gflops\\\":([-+0-9.eE]+)"))) out.gflops = std::stod(m[1].str());
+        auto capture_string = [&](const char* key, std::string& dst) {
+            if (std::regex_search(line, m, std::regex(std::string("\\\"") + key + "\\\":\\\"([^\\\"]*)\\\""))) dst = m[1].str();
+        };
+        auto capture_int = [&](const char* key, int& dst) {
+            if (std::regex_search(line, m, std::regex(std::string("\\\"") + key + "\\\":([0-9]+)"))) dst = std::stoi(m[1].str());
+        };
+        auto capture_double = [&](const char* key, double& dst) {
+            if (std::regex_search(line, m, std::regex(std::string("\\\"") + key + "\\\":([-+0-9.eE]+)"))) dst = std::stod(m[1].str());
+        };
+        capture_string("gpu", out.gpu);
+        capture_string("gpu_uuid", out.gpu_uuid);
+        capture_string("compute_capability", out.compute_capability);
+        capture_string("cuda_runtime", out.cuda_runtime);
+        capture_string("cuda_toolkit", out.cuda_toolkit);
+        capture_string("dtype", out.dtype);
+        capture_int("M", out.M); capture_int("N", out.N); capture_int("K", out.K);
+        capture_int("warmup", out.warmup); capture_int("iterations", out.iterations); capture_int("seed", out.seed);
+        capture_double("median_ms", out.median_ms);
+        capture_double("gflops", out.gflops);
         out.found = true;
         break;
     }
@@ -467,6 +530,7 @@ BaselineRecord find_baseline_record(const fs::path& jsonl, const std::string& id
 
 void append_experiment(BenchmarkResult result, const BenchmarkConfig& cfg) {
     const fs::path dir = project_results_dir(cfg);
+    ExperimentFileLock history_lock(dir);
     fs::create_directories(dir / "raw");
     fs::create_directories(dir / "summaries");
     write_header_if_needed(dir / "experiments.csv");
@@ -478,8 +542,12 @@ void append_experiment(BenchmarkResult result, const BenchmarkConfig& cfg) {
         const BaselineRecord b = find_baseline_record(dir / "experiments.jsonl", result.baseline_experiment_id);
         if (!b.found) {
             result.notes += (result.notes.empty() ? "" : "; ") + std::string("baseline experiment not found; deltas unavailable");
-        } else if (b.dtype != result.dtype || b.M != result.M || b.N != result.N || b.K != result.K) {
-            result.notes += (result.notes.empty() ? "" : "; ") + std::string("baseline dimensions/dtype do not match; deltas unavailable");
+        } else if (b.gpu != result.gpu || b.gpu_uuid != result.gpu_uuid ||
+                   b.compute_capability != result.compute_capability ||
+                   b.cuda_runtime != result.cuda_runtime || b.cuda_toolkit != result.cuda_toolkit ||
+                   b.dtype != result.dtype || b.M != result.M || b.N != result.N || b.K != result.K ||
+                   b.warmup != result.warmup || b.iterations != result.iterations || b.seed != result.seed) {
+            result.notes += (result.notes.empty() ? "" : "; ") + std::string("baseline environment/workload does not match; deltas unavailable");
         } else if (b.median_ms > 0.0 && b.gflops > 0.0) {
             result.latency_delta_ms = result.median_ms - b.median_ms;
             result.latency_delta_pct = (result.latency_delta_ms / b.median_ms) * 100.0;

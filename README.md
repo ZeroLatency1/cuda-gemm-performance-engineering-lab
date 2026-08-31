@@ -62,17 +62,19 @@ The official experiment history lives in:
 - `results/experiments.jsonl`
 - `results/raw/EXP-XXXXXX.json`
 
-Every attempted configuration receives a unique experiment ID. Successful measured runs are `PASS`; unsupported configurations are `UNSUPPORTED`; execution failures are `ERROR`; performance-only runs explicitly use `verification_status=NOT_VERIFIED`. Existing history is never truncated or rewritten during normal benchmark operation. The CSV header is schema-checked before append.
+Every attempted configuration receives a unique experiment ID. Successful measured runs are `PASS`; unsupported configurations are `UNSUPPORTED`; execution failures are `ERROR`; performance-only runs explicitly use `verification_status=NOT_VERIFIED`. Existing history is never truncated or rewritten during normal benchmark operation. The CSV header is schema-checked before append. Experiment-history writes are serialized with a lock on Linux/WSL so concurrent invocations cannot allocate the same ID.
 
 Historical performance from previous projects is not imported into the official dataset. The official record starts with the first clean run of this repository on the target hardware.
 
 ## Profiling
 
+Profile a specific kernel/workload with:
+
 ```bash
-./scripts/run_profile.sh
+./scripts/run_profile.sh --kernel register --M 2048 --N 2048 --K 2048 --dtype fp32
 ```
 
-Nsight Compute output is written under a unique timestamped path in `profiles/`. If WSL2/driver/tool permissions prevent attachment, the script records the exact limitation instead of inventing metrics or failing as though profiling had succeeded.
+The script discovers Nsight Compute from `PATH` or common Linux installations, records the exact profiler command/version, captures the benchmark experiment ID emitted by the application, and stores the report under `profiles/EXP-XXXXXX/profile.ncu-rep`. A machine-readable link is appended to `results/profiling.jsonl`. Profiling artifacts are explicitly marked `performance_claim_eligible=false` because Nsight instrumentation perturbs benchmark timing. If attachment fails, the script records the exact limitation and marks profiling `LIMITED` rather than fabricating metrics.
 
 ## Static repository checks
 
@@ -84,7 +86,7 @@ These checks validate the experiment schema, CSV/JSONL alignment, SM 8.9 targeti
 
 ## Project state
 
-`project_state.json` tracks implementation/build/correctness/benchmark/profiling/documentation status, latest experiment ID, current best verified kernel, and known limitations. `results/summaries/` stores timestamped environment snapshots.
+`project_state.json` tracks implementation/build/correctness/benchmark/profiling/documentation status, latest experiment ID, workload-scoped best verified results, and known limitations. `results/project_status.json` is a generated compatibility mirror. `results/summaries/` stores timestamped environment snapshots.
 
 ## Repository map
 

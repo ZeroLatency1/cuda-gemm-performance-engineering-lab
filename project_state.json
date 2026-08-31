@@ -2,10 +2,10 @@
   "project": "CUDA GEMM Performance Engineering Lab",
   "status": {
     "implementation": "IMPLEMENTED",
-    "build": "NOT_YET_VERIFIED_ON_TARGET",
-    "correctness": "NOT_YET_VERIFIED_ON_TARGET",
-    "benchmark": "NOT_YET_VERIFIED_ON_TARGET",
-    "profiling": "NOT_YET_VERIFIED_ON_TARGET",
+    "build": "PASS",
+    "correctness": "PASS",
+    "benchmark": "PASS",
+    "profiling": "PASS",
     "documentation": "PASS"
   },
   "target": {
@@ -16,11 +16,23 @@
     "compiler": "GCC 13.3.0",
     "cmake": "3.28.x"
   },
-  "current_best_kernel": null,
-  "best_verified_result": null,
-  "latest_experiment_id": null,
-  "last_successful_build": null,
-  "last_successful_correctness_run": null,
+  "current_best_kernel": "cublas",
+  "best_verified_result": {
+    "experiment_id": "EXP-000022",
+    "kernel": "cublas",
+    "kernel_variant": "cublas_sgemm",
+    "dtype": "fp32",
+    "M": 256,
+    "N": 256,
+    "K": 256,
+    "median_ms": 0.0204799994826,
+    "p95_ms": 0.0696832012385,
+    "min_ms": 0.01331199985,
+    "gflops": 1638.40004139
+  },
+  "latest_experiment_id": "EXP-000278",
+  "last_successful_build": "2026-08-31T08:20:22.901252Z",
+  "last_successful_correctness_run": "2026-08-31T08:20:33.975628Z",
   "unsupported_features": [],
   "known_limitations": [
     "Target GPU execution is required to produce official performance results.",
@@ -35,5 +47,126 @@
     "Profile winning and regressing kernels with Nsight Compute where attachment is possible.",
     "Use measured register usage, occupancy, memory throughput, and instruction metrics to accept or reject targeted variants.",
     "Populate optimization_log.md and final_report.md only from recorded experiments."
-  ]
+  ],
+  "state_schema_version": 2,
+  "best_verified_by_workload": {
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp16|1024|1024|1024|42": {
+      "experiment_id": "EXP-000042",
+      "kernel": "cublas",
+      "kernel_variant": "cublas_gemmex_tensorop",
+      "dtype": "fp16",
+      "M": 1024,
+      "N": 1024,
+      "K": 1024,
+      "median_ms": 0.120832003653,
+      "p95_ms": 0.16404479593,
+      "min_ms": 0.113664001226,
+      "gflops": 17772.474039
+    },
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp16|128|128|128|42": {
+      "experiment_id": "EXP-000087",
+      "kernel": "tensorcore",
+      "kernel_variant": "wmma_16x16x16",
+      "dtype": "fp16",
+      "M": 128,
+      "N": 128,
+      "K": 128,
+      "median_ms": 0.0102239998523,
+      "p95_ms": 0.0472271999344,
+      "min_ms": 0.00598399993032,
+      "gflops": 410.241007491
+    },
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|1024|1024|1024|42": {
+      "experiment_id": "EXP-000040",
+      "kernel": "cublas",
+      "kernel_variant": "cublas_sgemm",
+      "dtype": "fp32",
+      "M": 1024,
+      "N": 1024,
+      "K": 1024,
+      "median_ms": 0.298576012254,
+      "p95_ms": 0.361947202682,
+      "min_ms": 0.230399996042,
+      "gflops": 7192.41854625
+    },
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|127|131|125|42": {
+      "experiment_id": "EXP-000071",
+      "kernel": "shared16",
+      "kernel_variant": "shared_tile_16x16",
+      "dtype": "fp32",
+      "M": 127,
+      "N": 131,
+      "K": 125,
+      "median_ms": 0.01331199985,
+      "p95_ms": 0.0598688002676,
+      "min_ms": 0.0122880004346,
+      "gflops": 312.443663377
+    },
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|128|128|128|42": {
+      "experiment_id": "EXP-000245",
+      "kernel": "coalesced",
+      "kernel_variant": "coalesced",
+      "dtype": "fp32",
+      "M": 128,
+      "N": 128,
+      "K": 128,
+      "median_ms": 0.012064000126,
+      "p95_ms": 0.019455999136,
+      "min_ms": 0.011264000088,
+      "gflops": 347.671083903
+    },
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|128|131|125|42": {
+      "experiment_id": "EXP-000089",
+      "kernel": "cpu",
+      "kernel_variant": "cpu",
+      "dtype": "fp32",
+      "M": 128,
+      "N": 131,
+      "K": 125,
+      "median_ms": 2.198201,
+      "p95_ms": 2.2757936,
+      "min_ms": 2.185865,
+      "gflops": 1.90701396278
+    },
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|129|257|193|42": {
+      "experiment_id": "EXP-000086",
+      "kernel": "cublas",
+      "kernel_variant": "cublas_sgemm",
+      "dtype": "fp32",
+      "M": 129,
+      "N": 257,
+      "K": 193,
+      "median_ms": 0.017888000235,
+      "p95_ms": 0.0729600009508,
+      "min_ms": 0.011264000088,
+      "gflops": 715.399029065
+    },
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|256|256|256|42": {
+      "experiment_id": "EXP-000022",
+      "kernel": "cublas",
+      "kernel_variant": "cublas_sgemm",
+      "dtype": "fp32",
+      "M": 256,
+      "N": 256,
+      "K": 256,
+      "median_ms": 0.0204799994826,
+      "p95_ms": 0.0696832012385,
+      "min_ms": 0.01331199985,
+      "gflops": 1638.40004139
+    },
+    "GPU-0902d391eeed82e813313d29c15d036c|NVIDIA GeForce RTX 4060 Laptop GPU|8.9|595.97|12.0|12.0|fp32|512|512|512|42": {
+      "experiment_id": "EXP-000031",
+      "kernel": "cublas",
+      "kernel_variant": "cublas_sgemm",
+      "dtype": "fp32",
+      "M": 512,
+      "N": 512,
+      "K": 512,
+      "median_ms": 0.0491520017385,
+      "p95_ms": 0.0972592014819,
+      "min_ms": 0.0417280010879,
+      "gflops": 5461.33314016
+    }
+  },
+  "last_successful_profile": "2026-08-31T08:38:29.243684Z"
 }

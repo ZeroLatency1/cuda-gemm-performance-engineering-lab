@@ -8,4 +8,4 @@ This file is intentionally evidence-driven. A row is only added after the implem
 
 ## Recording rule
 
-For each meaningful optimization, record the experiment ID, hypothesis, change, parent/baseline IDs, measured median/p95/minimum latency, GFLOPS, correctness result, and accept/reject decision. Performance claims must be traceable to `results/experiments.csv` / `.jsonl` records.
+For each meaningful optimization, record the experiment ID, hypothesis, change, parent/baseline IDs, measured median/p95/minimum latency, GFLOPS, correctness result, and accept/reject decision. Performance claims must be traceable to `results/experiments.csv` / `.jsonl` records. Nsight Compute reports may support bottleneck explanations, but their instrumented timings must never be used as speedup/regression measurements.
