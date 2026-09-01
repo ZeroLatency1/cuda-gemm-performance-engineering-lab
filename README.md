@@ -7,6 +7,72 @@ A CUDA performance-engineering study of dense matrix multiplication on an NVIDIA
 [![Experiments](https://img.shields.io/badge/experiments-589-76B900)](#experiment-records)
 [![Status](https://img.shields.io/badge/release-v1.0--final-blue)](#release)
 
+## Abstract
+
+Matrix multiplication is one of the most important building blocks in modern
+computing, yet achieving high performance on a GPU requires much more than
+simply moving the calculation onto thousands of threads.
+
+This project investigates a simple question:
+
+> **How much performance can be gained by changing the way a GPU computes the
+> same matrix multiplication?**
+
+Starting from a basic CUDA implementation, the project progressively explores
+memory coalescing, shared-memory tiling, register blocking, vectorized memory
+access, warp-level execution, and Tensor Core acceleration. Each approach is
+benchmarked on the same NVIDIA RTX 4060 and analyzed using measured execution
+time and Nsight Compute hardware metrics.
+
+The final dataset contains **589 experiments**, allowing the optimizations to
+be compared across different matrix shapes and numerical precisions rather
+than relying on a single benchmark.
+
+The strongest custom FP32 implementation reaches **2.81 TFLOPS at 1024³**, a
+**3.91× improvement over the naive CUDA implementation**. The experiments also
+show where optimizations stop helping: the warp-oriented implementation, for
+example, produces a substantial regression on the same workload.
+
+The purpose is therefore not simply to produce the fastest kernel, but to
+understand **why different GPU optimization strategies succeed or fail**.
+
+---
+
+## The experiment in one sentence
+
+**Same mathematical operation → different GPU execution strategies → measure,
+profile, explain.**
+
+---
+
+## Performance at a glance
+
+<div align="center">
+
+### Naive → Optimized → Vendor Library
+
+**716.9 GFLOPS** &nbsp; → &nbsp; **2,806.7 GFLOPS** &nbsp; → &nbsp; **8,460.9 GFLOPS**
+
+`Naive CUDA` &nbsp;&nbsp;&nbsp;&nbsp; `Register64` &nbsp;&nbsp;&nbsp;&nbsp; `cuBLAS`
+
+</div>
+
+```text
+Naive CUDA
+   │
+   ├── Coalesced memory access
+   ├── Shared-memory tiling
+   ├── Register blocking
+   ├── Vectorized memory access
+   ├── Warp-level execution
+   └── WMMA Tensor Cores
+             │
+             ▼
+        NVIDIA cuBLAS
+
+
+
+
 ## At a glance
 
 | Item | Result |
