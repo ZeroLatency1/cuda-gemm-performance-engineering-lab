@@ -1,0 +1,28 @@
+{
+  "canonical_state": "../project_state.json",
+  "project": "CUDA GEMM Performance Engineering Lab",
+  "status": {
+    "implementation": "IMPLEMENTED",
+    "build": "PASS",
+    "correctness": "PASS",
+    "benchmark": "PASS",
+    "profiling": "PASS",
+    "documentation": "PASS"
+  },
+  "state_schema_version": 2,
+  "latest_experiment_id": "EXP-000589",
+  "current_best_kernel": "cublas",
+  "best_verified_result": {
+    "experiment_id": "EXP-000361",
+    "kernel": "cublas",
+    "kernel_variant": "cublas_sgemm",
+    "dtype": "fp32",
+    "M": 1024,
+    "N": 1024,
+    "K": 1024,
+    "median_ms": 0.268064007163,
+    "p95_ms": 0.29700640589,
+    "min_ms": 0.233472004533,
+    "gflops": 8011.08537743
+  }
+}

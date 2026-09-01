@@ -1,0 +1,12 @@
+timestamp=2026-08-30T19:25:30Z
+hostname=6be639d83228
+os=Debian GNU/Linux 13 (trixie)
+wsl_status=NOT_WSL
+gpu=UNKNOWN
+gpu_uuid=UNKNOWN
+driver=UNKNOWN
+nvcc=UNKNOWN
+g++=g++ (Debian 14.2.0-19) 14.2.0
+cmake=cmake version 3.31.6
+ncu=unavailable
+nsys=unavailable

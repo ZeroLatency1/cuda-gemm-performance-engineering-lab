@@ -1,0 +1,12 @@
+{
+  "name": "CUDA GEMM Performance Lab",
+  "description": "CUDA GEMM implementations, correctness checks, benchmark history, and Nsight Compute profiling for NVIDIA RTX 4060 Laptop GPU.",
+  "target": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "compute_capability": "8.9",
+    "cuda_toolkit": "12.0.140",
+    "os": "Ubuntu 24.04 under WSL2",
+    "compiler": "GCC 13.3.0"
+  },
+  "requestFramePermissions": []
+}
